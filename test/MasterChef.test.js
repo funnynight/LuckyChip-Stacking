@@ -1,14 +1,15 @@
 const { expectRevert, time } = require('@openzeppelin/test-helpers');
+const { AddressZero } = require("@ethersproject/constants")
 const { assert } = require('chai');
 const JSBI           = require('jsbi')
-const CakeToken = artifacts.require('LCToken');
+const LCToken = artifacts.require('LCToken');
 const MasterChef = artifacts.require('MasterChef');
 const MockBEP20 = artifacts.require('libs/MockBEP20');
-let perBlock = '30000000000000000000';
+let perBlock = '100000000000000000000';
 const delay = ms => new Promise(res => setTimeout(res, ms));
 contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
     beforeEach(async () => {
-        this.cake = await CakeToken.new({ from: minter });
+        this.lc = await LCToken.new({ from: minter });
     
         this.lp1 = await MockBEP20.new('LPToken', 'LP1', '1000000', { from: minter });
         this.lp2 = await MockBEP20.new('LPToken', 'LP2', '1000000', { from: minter });
@@ -16,14 +17,13 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
         this.lp4 = await MockBEP20.new('LPToken', 'LP4', '1000000', { from: minter });
         
         
-        await this.cake.addMinter(minter, { from: minter });
-        this.chef = await MasterChef.new(this.cake.address, dev, refFeeAddr, perBlock, '206', '1000', '857000', '100000', '43000', { from: minter });
-        await this.cake.addMinter(this.chef.address, { from: minter });
-        await this.cake.mint(alice, "1", { from: minter });
-        //await this.cake.transferOwnership(this.chef.address, { from: minter });
+        await this.lc.addMinter(minter, { from: minter });
+        this.chef = await MasterChef.new(this.lc.address, dev, refFeeAddr, perBlock, '1000', '900000','90000', '10000', { from: minter });
+        await this.lc.addMinter(this.chef.address, { from: minter });
+        await this.lc.mint(alice, "1", { from: minter });
+        //await this.lc.transferOwnership(this.chef.address, { from: minter });
         
     
-
         await this.lp1.transfer(bob, '2000', { from: minter });
         await this.lp1.transfer(carol, '2000', { from: minter });
         await this.lp2.transfer(bob, '2000', { from: minter });
@@ -39,43 +39,39 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
       
     });
     it('real case', async () => {
-
-        await this.chef.add('1000', this.lp1.address, true, { from: minter });
+		console.log('Here');
+        await this.chef.add('1000', '0', this.lp1.address, true, { from: minter });
         console.log('pools count', (await this.chef.poolLength()).toString());
 
         await time.advanceBlockTo('200');
         //1 - lp
         await this.lp1.approve(this.chef.address, '1000', { from: alice });
-        await this.cake.approve(this.chef.address, '1000', { from: alice });
+        await this.lc.approve(this.chef.address, '1000', { from: alice });
         // await this.lp1.approve(this.chef.address, '1000', { from: bob });
         // await this.lp1.approve(this.chef.address, '1000', { from: carol });
         console.log('----Deposit----');
-        await this.chef.deposit(1, '1', { from: alice });
-        await this.chef.enterStaking('1', { from: alice });
+        await this.chef.deposit(0, '1', AddressZero, { from: alice });
+        //await this.chef.enterStaking('1', { from: alice });
         // await this.chef.deposit(1, '1', { from: bob });
         // await this.chef.deposit(1, '1', { from: carol });
         console.log('---------------');
         console.log((await time.latestBlock()).toString());
-        await time.advanceBlockTo('206');
+        await time.advanceBlockTo('2000');
         
         console.log('---Withdraw---');
-        await this.chef.withdraw(1, '1', { from: alice });
-        let aliceBalance = await this.cake.balanceOf(alice);
-        console.log('alise balance: ', aliceBalance.toString());
-
-        await this.chef.leaveStaking('1', { from: alice });
-        aliceBalance = await this.cake.balanceOf(alice);
+        await this.chef.withdraw(0, '1', { from: alice });
+        let aliceBalance = await this.lc.balanceOf(alice);
         console.log('alise balance: ', aliceBalance.toString());
 
         console.log('---------------');
         console.log((await time.latestBlock()).toString());
 
         // await this.chef.withdraw(1, '1', { from: bob });
-        // let bobBalance = await this.cake.balanceOf(bob);
+        // let bobBalance = await this.lc.balanceOf(bob);
         // console.log('bob balance: ', bobBalance.toString());
 
         // await this.chef.withdraw(1, '1', { from: carol });
-        // let carolBalance = await this.cake.balanceOf(carol);
+        // let carolBalance = await this.lc.balanceOf(carol);
         // console.log('carol balance: ', carolBalance.toString());
         // console.log('--------------');
 
@@ -85,10 +81,10 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
 
 
         
-        await this.chef.withdrawDevAndRefFee({ from: minter });
-        let balanceDev = await this.cake.balanceOf(dev);
+        await this.chef.withdrawDevFee({ from: minter });
+        let balanceDev = await this.lc.balanceOf(dev);
         console.log('dev address balance: ', balanceDev.toString());
-        let balanceRef = await this.cake.balanceOf(refFeeAddr);
+        let balanceRef = await this.lc.balanceOf(refFeeAddr);
         console.log('ref address balance: ', balanceRef.toString());
 
         
@@ -118,14 +114,14 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
         // await this.chef.devFeeWithdrawal({from: minter});
         // console.log('--------------');
         // console.log('---Local dev fee info---');
-        // let balanceDev = await this.cake.balanceOf(dev);
-        // let balanceRef = await this.cake.balanceOf(refFeeAddr);
-        // let aliceBalance = await this.cake.balanceOf(alice);
+        // let balanceDev = await this.lc.balanceOf(dev);
+        // let balanceRef = await this.lc.balanceOf(refFeeAddr);
+        // let aliceBalance = await this.lc.balanceOf(alice);
         // console.log('dev', balanceDev.toString());
         // console.log('ref', balanceRef.toString());
-        // // assert.equal((await this.cake.balanceOf(dev)).toString(), '12');
-        // // assert.equal((await this.cake.balanceOf(refFeeAddr)).toString(), '6');
-        // // assert.equal((await this.cake.balanceOf(alice)).toString(), '26');
+        // // assert.equal((await this.lc.balanceOf(dev)).toString(), '12');
+        // // assert.equal((await this.lc.balanceOf(refFeeAddr)).toString(), '6');
+        // // assert.equal((await this.lc.balanceOf(alice)).toString(), '26');
 
         // console.log(perBlock);
         // let devAddRef = JSBI.add(JSBI.BigInt(balanceRef), JSBI.BigInt(balanceDev));
@@ -136,12 +132,12 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
             
        
 
-        // await this.cake.approve(this.chef.address, '1000', { from: alice });
+        // await this.lc.approve(this.chef.address, '1000', { from: alice });
         // await this.chef.enterStaking('20', { from: alice });
         // await this.chef.enterStaking('0', { from: alice });
         // await this.chef.enterStaking('0', { from: alice });
         // await this.chef.enterStaking('0', { from: alice });
-        // assert.equal((await this.cake.balanceOf(alice)).toString(), '993');
+        // assert.equal((await this.lc.balanceOf(alice)).toString(), '993');
         // // assert.equal((await this.chef.getPoolPoint(0, { from: minter })).toString(), '1900');
     })
 
@@ -159,15 +155,15 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
     //     assert.equal((await this.lp1.balanceOf(alice)).toString(), '1940');
     //     await this.chef.withdraw(1, '10', { from: alice });
     //     assert.equal((await this.lp1.balanceOf(alice)).toString(), '1950');
-    //     assert.equal((await this.cake.balanceOf(alice)).toString(), '999');
-    //     assert.equal((await this.cake.balanceOf(dev)).toString(), '100');
+    //     assert.equal((await this.lc.balanceOf(alice)).toString(), '999');
+    //     assert.equal((await this.lc.balanceOf(dev)).toString(), '100');
     //
     //     await this.lp1.approve(this.chef.address, '100', { from: bob });
     //     assert.equal((await this.lp1.balanceOf(bob)).toString(), '2000');
     //     await this.chef.deposit(1, '50', { from: bob });
     //     assert.equal((await this.lp1.balanceOf(bob)).toString(), '1950');
     //     await this.chef.deposit(1, '0', { from: bob });
-    //     assert.equal((await this.cake.balanceOf(bob)).toString(), '125');
+    //     assert.equal((await this.lc.balanceOf(bob)).toString(), '125');
     //     await this.chef.emergencyWithdraw(1, { from: bob });
     //     assert.equal((await this.lp1.balanceOf(bob)).toString(), '2000');
     // })
@@ -181,16 +177,16 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
     //     await this.chef.deposit(1, '2', { from: alice }); //0
     //     await this.chef.withdraw(1, '2', { from: alice }); //1
     //
-    //     await this.cake.approve(this.chef.address, '250', { from: alice });
+    //     await this.lc.approve(this.chef.address, '250', { from: alice });
     //     await this.chef.enterStaking('240', { from: alice }); //3
     //     assert.equal((await this.syrup.balanceOf(alice)).toString(), '240');
-    //     assert.equal((await this.cake.balanceOf(alice)).toString(), '10');
+    //     assert.equal((await this.lc.balanceOf(alice)).toString(), '10');
     //     await this.chef.enterStaking('10', { from: alice }); //4
     //     assert.equal((await this.syrup.balanceOf(alice)).toString(), '250');
-    //     assert.equal((await this.cake.balanceOf(alice)).toString(), '249');
+    //     assert.equal((await this.lc.balanceOf(alice)).toString(), '249');
     //     await this.chef.leaveStaking(250);
     //     assert.equal((await this.syrup.balanceOf(alice)).toString(), '0');
-    //     assert.equal((await this.cake.balanceOf(alice)).toString(), '749');
+    //     assert.equal((await this.lc.balanceOf(alice)).toString(), '749');
     //
     // });
     //
@@ -207,8 +203,8 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
     //     await this.chef.deposit(1, '0', { from: alice });
     //     await this.chef.deposit(1, '0', { from: bob });
     //
-    //     await this.cake.approve(this.chef.address, '100', { from: alice });
-    //     await this.cake.approve(this.chef.address, '100', { from: bob });
+    //     await this.lc.approve(this.chef.address, '100', { from: alice });
+    //     await this.lc.approve(this.chef.address, '100', { from: bob });
     //     await this.chef.enterStaking('50', { from: alice });
     //     await this.chef.enterStaking('100', { from: bob });
     //
@@ -219,8 +215,8 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
     //     await this.chef.deposit(1, '0', { from: alice });
     //     await this.chef.deposit(1, '0', { from: bob });
     //
-    //     assert.equal((await this.cake.balanceOf(alice)).toString(), '700');
-    //     assert.equal((await this.cake.balanceOf(bob)).toString(), '150');
+    //     assert.equal((await this.lc.balanceOf(alice)).toString(), '700');
+    //     assert.equal((await this.lc.balanceOf(bob)).toString(), '150');
     //
     //     await time.advanceBlockTo('265');
     //
@@ -229,8 +225,8 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
     //     await this.chef.deposit(1, '0', { from: alice });
     //     await this.chef.deposit(1, '0', { from: bob });
     //
-    //     assert.equal((await this.cake.balanceOf(alice)).toString(), '700');
-    //     assert.equal((await this.cake.balanceOf(bob)).toString(), '150');
+    //     assert.equal((await this.lc.balanceOf(alice)).toString(), '700');
+    //     assert.equal((await this.lc.balanceOf(bob)).toString(), '150');
     //
     //     await this.chef.leaveStaking('50', { from: alice });
     //     await this.chef.leaveStaking('100', { from: bob });
