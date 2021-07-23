@@ -120,9 +120,6 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         devPercent = _devPercent;
         safuPercent = _safuPercent;
         lastBlockDevWithdraw = _startBlock;
-        
-        totalAllocPoint = 1000;
-
     }
 
     function updateMultiplier(uint256 multiplierNumber) public onlyOwner {
@@ -131,6 +128,10 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
     function poolLength() external view returns (uint256) {
         return poolInfo.length;
+    }
+
+    function bonusLength() external view returns (uint256) {
+        return bonusInfo.length;
     }
 
     function withdrawDevFee() public{
@@ -169,8 +170,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         for(uint256 i = 0; i < poolInfo.length; i ++){
             PoolInfo storage pool = poolInfo[i];
             if (pool.bonusPoint > 0){
-                uint256[] storage bonusPerShare = poolBonusPerShare[i];
-                bonusPerShare.push(0);
+                poolBonusPerShare[i].push(0);
             }
         }
     }
@@ -209,13 +209,12 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         UserInfo storage user = userInfo[_pid][_user];
         uint256[] memory values = new uint256[](bonusInfo.length);
         if (pool.bonusPoint > 0){
-            uint256[] storage bonusPerShare = poolBonusPerShare[_pid];
             for(uint256 i = 0; i < bonusInfo.length; i ++) {
-                values[i] = user.amount.mul(bonusPerShare[i]).div(1e12).sub(userBonusDebt[i][_user]);
+                values[i] = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12).sub(userBonusDebt[i][_user]);
             }
         }
         return values;
-    }    
+    }
 
     // Update reward vairables for all pools. Be careful of gas spending!
     function massUpdatePools() public {
@@ -255,8 +254,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
                 continue;
             }
             if (pool.bonusPoint > 0){
-                uint256[] storage bonusPerShare = poolBonusPerShare[i];
-                bonusPerShare[_pid] = bonusPerShare[_pid].add(_amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
+                poolBonusPerShare[i][_pid] = poolBonusPerShare[i][_pid].add(_amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
             }
         }    
 		bonusPool.lastRewardBlock = block.number;
@@ -266,13 +264,11 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     function payPendingLC(uint256 _pid, address _user) internal {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
-        if (pool.bonusPoint > 0){
-            uint256 pending = user.amount.mul(pool.accLCPerShare).div(1e12).sub(user.rewardDebt);
-            if (pending > 0) {
-                // send rewards
-                safeLCTransfer(_user, pending);
-                payReferralCommission(_user, pending);
-            }
+        uint256 pending = user.amount.mul(pool.accLCPerShare).div(1e12).sub(user.rewardDebt);
+        if (pending > 0) {
+            // send rewards
+            safeLCTransfer(_user, pending);
+            payReferralCommission(_user, pending);
         }
     }
 
@@ -281,13 +277,12 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         if (pool.bonusPoint > 0){
-			uint256[] storage bonusPerShare = poolBonusPerShare[_pid];
-			require(bonusPerShare.length == bonusInfo.length, "bonusPerShare.length must equal to bonusInof length");
+			require(poolBonusPerShare[_pid].length == bonusInfo.length, "poolBonusPerShare.length must equal to bonusInof length");
             for(uint256 i = 0; i < bonusInfo.length; i ++) {  
-                uint256 pending = user.amount.mul(bonusPerShare[i]).div(1e12).sub(userBonusDebt[i][_user]);
+                uint256 pending = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12).sub(userBonusDebt[i][_user]);
                 if (pending > 0) {
                     BonusInfo storage bonusPool = bonusInfo[i];
-                    bonusPool.bonusToken.safeTransferFrom(address(this), address(_user), pending);
+                    bonusPool.bonusToken.safeTransfer(address(_user), pending);
                 }
             }
         }
@@ -302,16 +297,17 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
             luckychipReferral.recordReferral(msg.sender, _referrer);
         }
         payPendingLC(_pid, msg.sender);
+        if (pool.bonusPoint > 0){
+            payPendingBonus(_pid, msg.sender);
+		}
         if(_amount > 0){
             pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
             user.amount = user.amount.add(_amount);
         }
         user.rewardDebt = user.amount.mul(pool.accLCPerShare).div(1e12);
         if (pool.bonusPoint > 0){
-            payPendingBonus(_pid, msg.sender);
-			uint256[] storage bonusPerShare = poolBonusPerShare[_pid];
             for(uint256 i = 0; i < bonusInfo.length; i ++) {  
-				userBonusDebt[i][msg.sender] = user.amount.mul(bonusPerShare[i]).div(1e12);
+				userBonusDebt[i][msg.sender] = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12);
             }
         }
 
@@ -326,16 +322,17 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         require(user.amount >= _amount, "withdraw: not good");
         updatePool(_pid);
         payPendingLC(_pid, msg.sender);
+        if (pool.bonusPoint > 0){
+            payPendingBonus(_pid, msg.sender);
+		}
         if(_amount > 0){
             user.amount = user.amount.sub(_amount);
             pool.lpToken.safeTransfer(address(msg.sender), _amount);
         } 
         user.rewardDebt = user.amount.mul(pool.accLCPerShare).div(1e12);
         if (pool.bonusPoint > 0){
-            payPendingBonus(_pid, msg.sender);
-			uint256[] storage bonusPerShare = poolBonusPerShare[_pid];
             for(uint256 i = 0; i < bonusInfo.length; i ++) {  
-				userBonusDebt[i][msg.sender] = user.amount.mul(bonusPerShare[i]).div(1e12);
+				userBonusDebt[i][msg.sender] = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12);
             }
         }
         emit Withdraw(msg.sender, _pid, _amount);
