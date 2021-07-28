@@ -91,7 +91,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     // LuckyChip referral contract address.
     ILuckyChipReferral public luckychipReferral;
     // Referral commission rate in basis points.
-    uint16 public referralCommissionRate = 500;
+    uint16 public referralCommissionRate = 100;
     // Max referral commission rate: 10%.
     uint16 public constant MAXIMUM_REFERRAL_COMMISSION_RATE = 1000;
 
