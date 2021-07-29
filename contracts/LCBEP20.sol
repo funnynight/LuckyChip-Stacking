@@ -33,8 +33,8 @@ import "@openzeppelin/contracts/utils/Address.sol";
  * allowances. See {IBEP20-approve}.
  */
 contract LCBEP20 is Context, IBEP20, Ownable {
-	uint256 private constant _preMineSupply = 10000000 * 1e18;
-    uint256 private constant _maxSupply = 700000000 * 1e18;
+	uint256 private constant _preMineSupply = 1000000 * 1e18;
+    uint256 private constant _maxSupply = 10000000000 * 1e18;
 
     using SafeMath for uint256;
     using Address for address;
