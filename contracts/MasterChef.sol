@@ -369,7 +369,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
     function updateLcPerBlock(uint256 newAmount) public onlyOwner {
         require(newAmount <= 100 * 1e18, 'Max per block 100 LC');
-        require(newAmount >= 1 * 1e18, 'Min per block 1 LC');
+        require(newAmount >= 1 * 1e15, 'Min per block 0.001 LC');
         LCPerBlock = newAmount;
     }
     // Update referral commission rate by the owner
