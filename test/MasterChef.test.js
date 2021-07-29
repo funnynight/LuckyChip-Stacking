@@ -93,7 +93,8 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
         await time.advanceBlockTo('300');
 		console.log(`Current block: ${(await time.latestBlock())}`);
         await this.chef.deposit(0, '20', AddressZero, { from: alice });
-		await this.chef.updateBonus(0, '100', { from: minter});
+		await this.lp3.transfer(this.chef.address, '100', {from: minter});
+		await this.chef.updateBonus(0, { from: minter});
 		bonusPool = await this.chef.bonusInfo(0, {from:minter});
 		console.log(`${bonusPool[0]},${bonusPool[1]}`);
 		user = await this.chef.userInfo(0, alice, {from: alice});
@@ -104,7 +105,7 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
 		console.log(`${bonusPerShare}`);
 		assert.equal((await this.lp3.balanceOf(this.chef.address)).toString(), '100');
 		pendingBonus = await this.chef.pendingBonus(0, alice);
-		console.log(`${pendingBonus[0]}}`);
+		console.log(`${pendingBonus[0]}`);
 		
 
         await time.advanceBlockTo('350'); 

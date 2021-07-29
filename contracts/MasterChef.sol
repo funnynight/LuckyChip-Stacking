@@ -48,6 +48,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
     struct BonusInfo {
         IBEP20 bonusToken;
+		uint256 lastBalance;
         uint256 lastRewardBlock;
     }
 
@@ -166,7 +167,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
     function addBonus(IBEP20 _bonusToken) public onlyOwner {
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
-        bonusInfo.push(BonusInfo({bonusToken: _bonusToken, lastRewardBlock: lastRewardBlock}));
+        bonusInfo.push(BonusInfo({bonusToken: _bonusToken, lastBalance: 0, lastRewardBlock: lastRewardBlock}));
         for(uint256 i = 0; i < poolInfo.length; i ++){
             PoolInfo storage pool = poolInfo[i];
             if (pool.bonusPoint > 0){
@@ -243,21 +244,25 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Update bonus
-    function updateBonus(uint256 _pid, uint256 _amount) public override {
+    function updateBonus(uint256 _pid) external override {
 		require(_pid < bonusInfo.length, "_pid must be less than bonusInfo length");
         BonusInfo storage bonusPool = bonusInfo[_pid];
-        bonusPool.bonusToken.safeTransferFrom(address(msg.sender), address(this), _amount);
-        for(uint256 i = 0; i < poolInfo.length; i ++){
-            PoolInfo storage pool = poolInfo[i];
-            uint256 lpSupply = pool.lpToken.balanceOf(address(this));
-            if(lpSupply <= 0){
-                continue;
+		uint256 currentBalance = bonusPool.bonusToken.balanceOf(address(this));
+		if(currentBalance > bonusPool.lastBalance){
+			uint256 amount = currentBalance.sub(bonusPool.lastBalance);
+            for(uint256 i = 0; i < poolInfo.length; i ++){
+                PoolInfo storage pool = poolInfo[i];
+                uint256 lpSupply = pool.lpToken.balanceOf(address(this));
+                if(lpSupply <= 0){
+                    continue;
+                }
+                if (pool.bonusPoint > 0){
+                    poolBonusPerShare[i][_pid] = poolBonusPerShare[i][_pid].add(amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
+                }
             }
-            if (pool.bonusPoint > 0){
-                poolBonusPerShare[i][_pid] = poolBonusPerShare[i][_pid].add(_amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
-            }
-        }    
-		bonusPool.lastRewardBlock = block.number;
+			bonusPool.lastBalance = currentBalance;
+			bonusPool.lastRewardBlock = block.number;
+		}
     }
 
     // Pay pending LCs.
@@ -282,6 +287,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
                 uint256 pending = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12).sub(userBonusDebt[i][_user]);
                 if (pending > 0) {
                     BonusInfo storage bonusPool = bonusInfo[i];
+					bonusPool.lastBalance = bonusPool.lastBalance.sub(pending);
                     bonusPool.bonusToken.safeTransfer(address(_user), pending);
                 }
             }
