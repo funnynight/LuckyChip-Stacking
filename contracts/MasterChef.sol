@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 pragma solidity 0.6.12;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
@@ -59,11 +61,21 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     //Pools and Farms percent from token per block
     uint256 public stakingPercent;
     //Developers percent from token per block
-    uint256 public devPercent;
+    uint256 public dev0Percent;
+    //Developers percent from token per block
+    uint256 public dev1Percent;
+    //Developers percent from token per block
+    uint256 public dev2Percent;
     //Safu fund percent from token per block
     uint256 public safuPercent;
-    // Dev address.
-    address public devaddr;
+    // Dev0 address.
+    address public dev0addr;
+    // Dev1 address.
+    address public dev1addr;
+    // Dev2 address.
+    address public dev2addr;
+    // Treasury fund.
+    address public treasuryaddr;
     // Safu fund.
     address public safuaddr;
     // Last block then develeper withdraw dev and ref fee
@@ -104,21 +116,31 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
     constructor(
         LCToken _LC,
-        address _devaddr,
+        address _dev0addr,
+        address _dev1addr,
+        address _dev2addr,
         address _safuaddr,
+        address _treasuryaddr,
         uint256 _LCPerBlock,
         uint256 _startBlock,
         uint256 _stakingPercent,
-        uint256 _devPercent,
+        uint256 _dev0Percent,
+        uint256 _dev1Percent,
+        uint256 _dev2Percent,
         uint256 _safuPercent
     ) public {
         LC = _LC;
-        devaddr = _devaddr;
+        dev0addr = _dev0addr;
+        dev1addr = _dev1addr;
+        dev2addr = _dev2addr;
         safuaddr = _safuaddr;
+        treasuryaddr = _treasuryaddr;
         LCPerBlock = _LCPerBlock;
         startBlock = _startBlock;
         stakingPercent = _stakingPercent;
-        devPercent = _devPercent;
+        dev0Percent = _dev0Percent;
+        dev1Percent = _dev1Percent;
+        dev2Percent = _dev2Percent;
         safuPercent = _safuPercent;
         lastBlockDevWithdraw = _startBlock;
     }
@@ -139,7 +161,9 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         require(lastBlockDevWithdraw < block.number, 'wait for new block');
         uint256 multiplier = getMultiplier(lastBlockDevWithdraw, block.number);
         uint256 LCReward = multiplier.mul(LCPerBlock);
-        LC.mint(devaddr, LCReward.mul(devPercent).div(percentDec));
+        LC.mint(dev0addr, LCReward.mul(dev0Percent).div(percentDec));
+        LC.mint(dev1addr, LCReward.mul(dev1Percent).div(percentDec));
+        LC.mint(dev2addr, LCReward.mul(dev2Percent).div(percentDec));
         LC.mint(safuaddr, LCReward.mul(safuPercent).div(percentDec));
         lastBlockDevWithdraw = block.number;
     }
@@ -367,11 +391,16 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         }
     }
     
-    function setDevAddress(address _devaddr) public onlyOwner {
-        devaddr = _devaddr;
+    function setDevAddress(address _dev0addr,address _dev1addr,address _dev2addr) public onlyOwner {
+        dev0addr = _dev0addr;
+        dev1addr = _dev1addr;
+        dev2addr = _dev2addr;
     }
     function setSafuAddress(address _safuaddr) public onlyOwner{
         safuaddr = _safuaddr;
+    }
+    function setTreasuryAddress(address _treasuryaddr) public onlyOwner{
+        treasuryaddr = _treasuryaddr;
     }
     function updateLcPerBlock(uint256 newAmount) public onlyOwner {
         require(newAmount <= 100 * 1e18, 'Max per block 100 LC');
@@ -397,16 +426,16 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
                         luckychipReferral.recordReferralCommission(referrer, commissionAmount);
                         emit ReferralCommissionPaid(_user, referrer, commissionAmount);
                     }else{
-                        LC.mint(safuaddr, commissionAmount);
-                        luckychipReferral.recordReferralCommission(safuaddr, commissionAmount);
-                        emit ReferralCommissionPaid(_user, safuaddr, commissionAmount);
+                        LC.mint(treasuryaddr, commissionAmount);
+                        luckychipReferral.recordReferralCommission(treasuryaddr, commissionAmount);
+                        emit ReferralCommissionPaid(_user, treasuryaddr, commissionAmount);
                     }
                 }
             }else{
                 uint256 commissionAmount = _pending.mul(referralCommissionRate).div(10000);
                 if (commissionAmount > 0){
-                    LC.mint(safuaddr, commissionAmount);
-                    emit ReferralCommissionPaid(_user, safuaddr, commissionAmount);
+                    LC.mint(treasuryaddr, commissionAmount);
+                    emit ReferralCommissionPaid(_user, treasuryaddr, commissionAmount);
                 }
             }
         }

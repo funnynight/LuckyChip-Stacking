@@ -33,7 +33,6 @@ import "@openzeppelin/contracts/utils/Address.sol";
  * allowances. See {IBEP20-approve}.
  */
 contract LCBEP20 is Context, IBEP20, Ownable {
-	uint256 private constant _preMineSupply = 1000000 * 1e18;
     uint256 private constant _maxSupply = 10000000000 * 1e18;
 
     using SafeMath for uint256;
@@ -62,8 +61,6 @@ contract LCBEP20 is Context, IBEP20, Ownable {
         _name = name;
         _symbol = symbol;
         _decimals = 18;
-
-		_mint(msg.sender, _preMineSupply);
     }
 
     /**
@@ -99,10 +96,6 @@ contract LCBEP20 is Context, IBEP20, Ownable {
      */
     function totalSupply() public override view returns (uint256) {
         return _totalSupply;
-    }
-
-	function preMineSupply() public pure returns (uint256) {
-        return _preMineSupply;
     }
 
     function maxSupply() public pure returns (uint256) {
