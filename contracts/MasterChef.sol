@@ -114,6 +114,11 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     event EmissionRateUpdated(address indexed caller, uint256 previousAmount, uint256 newAmount);
     event ReferralCommissionPaid(address indexed user, address indexed referrer, uint256 commissionAmount);
 
+    modifier validPool(uint256 _pid){
+        require(_pid < poolInfo.length, 'pool not exist');
+        _;
+    }
+
     constructor(
         LCToken _LC,
         address _dev0addr,
@@ -171,9 +176,11 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     // Add a new lp to the pool. Can only be called by the owner.
     // XXX DO NOT add the same LP token more than once. Rewards will be messed up if you do.
     function add(uint256 _allocPoint, uint256 _bonusPoint, IBEP20 _lpToken, bool _withUpdate) public onlyOwner {
+        _checkPoolDuplicate(_lpToken);
         if (_withUpdate) {
             massUpdatePools();
         }
+
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
         totalBonusPoint = totalBonusPoint.add(_bonusPoint);
@@ -190,6 +197,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     function addBonus(IBEP20 _bonusToken) public onlyOwner {
+        _checkBonusDuplicate(_bonusToken);
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         bonusInfo.push(BonusInfo({bonusToken: _bonusToken, lastBalance: 0, lastRewardBlock: lastRewardBlock}));
         for(uint256 i = 0; i < poolInfo.length; i ++){
@@ -200,11 +208,23 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         }
     }
 
-    // Update the given pool's LC allocation point. Can only be called by the owner.
-    function set( uint256 _pid, uint256 _allocPoint, bool _withUpdate) public onlyOwner {
-        if (_withUpdate) {
-            massUpdatePools();
+    function _checkPoolDuplicate(IBEP20 _lpToken) view internal {
+        uint256 length = poolInfo.length;
+        for(uint256 pid = 0; pid < length; ++pid) {
+            require(poolInfo[pid].lpToken != _lpToken, "pool existed");
         }
+    }
+
+    function _checkBonusDuplicate(IBEP20 _bonusToken) view internal {
+        uint256 length = bonusInfo.length;
+        for(uint256 pid = 0; pid < length; ++pid) {
+            require(bonusInfo[pid].bonusToken != _bonusToken, "bonus existed");
+        }
+    }
+
+    // Update the given pool's LC allocation point. Can only be called by the owner.
+    function set( uint256 _pid, uint256 _allocPoint) public onlyOwner validPool(_pid) {
+        massUpdatePools();
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
     }
@@ -215,7 +235,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // View function to see pending LCs on frontend.
-    function pendingLC(uint256 _pid, address _user) external view returns (uint256){
+    function pendingLC(uint256 _pid, address _user) external view validPool(_pid) returns (uint256){
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256 accLCPerShare = pool.accLCPerShare;
@@ -229,7 +249,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // View function to see pending bonus on frontend.
-    function pendingBonus(uint256 _pid, address _user) external view returns (uint256[] memory){
+    function pendingBonus(uint256 _pid, address _user) external view validPool(_pid) returns (uint256[] memory){
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256[] memory values = new uint256[](bonusInfo.length);
@@ -250,7 +270,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Update reward variables of the given pool to be up-to-date.
-    function updatePool(uint256 _pid) public {
+    function updatePool(uint256 _pid) public validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         if (block.number <= pool.lastRewardBlock) {
             return;
@@ -268,9 +288,9 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Update bonus
-    function updateBonus(uint256 _pid) external override {
-		require(_pid < bonusInfo.length, "_pid must be less than bonusInfo length");
-        BonusInfo storage bonusPool = bonusInfo[_pid];
+    function updateBonus(uint256 _bonusId) external override {
+		require(_bonusId < bonusInfo.length, "bonusId must be less than bonusInfo length");
+        BonusInfo storage bonusPool = bonusInfo[_bonusId];
 		uint256 currentBalance = bonusPool.bonusToken.balanceOf(address(this));
 		if(currentBalance > bonusPool.lastBalance){
 			uint256 amount = currentBalance.sub(bonusPool.lastBalance);
@@ -281,7 +301,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
                     continue;
                 }
                 if (pool.bonusPoint > 0){
-                    poolBonusPerShare[i][_pid] = poolBonusPerShare[i][_pid].add(amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
+                    poolBonusPerShare[i][_bonusId] = poolBonusPerShare[i][_bonusId].add(amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
                 }
             }
 			bonusPool.lastBalance = currentBalance;
@@ -290,7 +310,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Pay pending LCs.
-    function payPendingLC(uint256 _pid, address _user) internal {
+    function payPendingLC(uint256 _pid, address _user) internal validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256 pending = user.amount.mul(pool.accLCPerShare).div(1e12).sub(user.rewardDebt);
@@ -302,7 +322,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Pay pending Bonus.
-    function payPendingBonus(uint256 _pid, address _user) internal {
+    function payPendingBonus(uint256 _pid, address _user) internal validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         if (pool.bonusPoint > 0){
@@ -319,7 +339,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Deposit LP tokens to MasterChef for LC allocation.
-    function deposit(uint256 _pid, uint256 _amount, address _referrer) public nonReentrant {
+    function deposit(uint256 _pid, uint256 _amount, address _referrer) public nonReentrant validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         updatePool(_pid);
@@ -345,7 +365,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Withdraw LP tokens from MasterChef.
-    function withdraw(uint256 _pid, uint256 _amount) public nonReentrant {
+    function withdraw(uint256 _pid, uint256 _amount) public nonReentrant validPool(_pid) {
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -369,7 +389,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
-    function emergencyWithdraw(uint256 _pid) public nonReentrant {
+    function emergencyWithdraw(uint256 _pid) public nonReentrant validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         pool.lpToken.safeTransfer(address(msg.sender), user.amount);

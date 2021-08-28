@@ -9,7 +9,6 @@ contract('LCToken', ([alice, bob, carol, dev, minter]) => {
 
 
     it('mint', async () => {
-		await this.lc.addMinter(minter, { from: minter });
         await this.lc.mint(alice, 1000, { from: minter });
         assert.equal((await this.lc.balanceOf(alice)).toString(), '1000');
     })

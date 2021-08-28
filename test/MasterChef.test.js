@@ -8,7 +8,7 @@ const MockBEP20 = artifacts.require('libs/MockBEP20');
 //let perBlock = '100000000000000000000';
 let perBlock = '1000';
 const delay = ms => new Promise(res => setTimeout(res, ms));
-contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
+contract('MasterChef', ([alice, bob, carol, dev0, dev1, dev2, safuAddr, treasuryAddr, minter]) => {
     beforeEach(async () => {
         this.lc = await LCToken.new({ from: minter });
     
@@ -16,9 +16,8 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
         this.lp2 = await MockBEP20.new('LPToken', 'LP2', '1000000', { from: minter });
         this.lp3 = await MockBEP20.new('LPToken', 'LP3', '1000000', { from: minter });
         
-        await this.lc.addMinter(minter, { from: minter });
-        this.chef = await MasterChef.new(this.lc.address, dev, refFeeAddr, perBlock, '100', '900000','90000', '10000', { from: minter });
-        await this.lc.addMinter(this.chef.address, { from: minter });
+        this.chef = await MasterChef.new(this.lc.address, dev0, dev1, dev2, safuAddr, treasuryAddr, perBlock, '100', '900000','32400', '24300', '24300', '10000', { from: minter });
+        await this.lc.transferOwnership(this.chef.address, { from: minter });
     
         await this.lp1.transfer(alice, '2000', { from: minter });
         await this.lp2.transfer(alice, '2000', { from: minter });
@@ -67,10 +66,16 @@ contract('MasterChef', ([alice, bob, carol, dev, refFeeAddr, minter]) => {
 
         await time.advanceBlockTo('210'); 
         await this.chef.withdrawDevFee({ from: minter });
-        let balanceDev = await this.lc.balanceOf(dev);
-        console.log('dev address balance: ', balanceDev.toString());
-        let balanceRef = await this.lc.balanceOf(refFeeAddr);
-        console.log('ref address balance: ', balanceRef.toString());
+        let balanceDev0 = await this.lc.balanceOf(dev0);
+        console.log('dev0 address balance: ', balanceDev0.toString());
+        let balanceDev1 = await this.lc.balanceOf(dev1);
+        console.log('dev1 address balance: ', balanceDev1.toString());
+        let balanceDev2 = await this.lc.balanceOf(dev2);
+        console.log('dev2 address balance: ', balanceDev2.toString());
+        let balanceSafu = await this.lc.balanceOf(safuAddr);
+        console.log('safu address balance: ', balanceSafu.toString());
+        let balanceTreasury = await this.lc.balanceOf(treasuryAddr);
+        console.log('treasury address balance: ', balanceTreasury.toString());
     })
     it('bonus', async () => {
         await this.chef.add('1000', '90', this.lp1.address, true, { from: minter });
