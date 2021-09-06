@@ -184,6 +184,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
         totalBonusPoint = totalBonusPoint.add(_bonusPoint);
+        uint256 pid = poolInfo.length;
         
         poolInfo.push(
             PoolInfo({
@@ -194,6 +195,12 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
                 accLCPerShare: 0
             })
         );
+
+        if(_bonusPoint > 0){
+            for(uint256 i = 0; i < bonusInfo.length; i ++){
+                poolBonusPerShare[pid].push(0);
+            }
+        }
     }
 
     function addBonus(IBEP20 _bonusToken) public onlyOwner {
