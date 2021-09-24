@@ -108,6 +108,13 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     // Max referral commission rate: 10%.
     uint16 public constant MAXIMUM_REFERRAL_COMMISSION_RATE = 1000;
 
+    event SetDevAddress(address indexed dev0Addr, address indexed dev1Addr, address indexed dev2Addr);
+    event SetSafuAddress(address indexed safuAddr);
+    event SetTreasuryAddress(address indexed treasuryAddr);
+    event UpdateLcPerBlock(uint256 lcPerBlock);
+    event SetReferralCommissionRate(uint256 commissionRate);
+    event SetLcReferral(address _lcReferral);
+
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
@@ -175,11 +182,9 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
     // Add a new lp to the pool. Can only be called by the owner.
     // XXX DO NOT add the same LP token more than once. Rewards will be messed up if you do.
-    function add(uint256 _allocPoint, uint256 _bonusPoint, IBEP20 _lpToken, bool _withUpdate) public onlyOwner {
+    function add(uint256 _allocPoint, uint256 _bonusPoint, IBEP20 _lpToken) public onlyOwner {
         _checkPoolDuplicate(_lpToken);
-        if (_withUpdate) {
-            massUpdatePools();
-        }
+        massUpdatePools();
 
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
@@ -404,7 +409,9 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         user.amount = 0;
         user.rewardDebt = 0;
 		if(pool.bonusPoint > 0){
-			
+            for(uint256 i = 0; i < bonusInfo.length; i ++) {  
+				userBonusDebt[i][msg.sender] = 0;
+            }
 		}
     }
 
@@ -419,25 +426,39 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
     
     function setDevAddress(address _dev0addr,address _dev1addr,address _dev2addr) public onlyOwner {
+        require(_dev0addr != address(0) && _dev1addr != address(0) && _dev2addr != address(0), "Zero");
         dev0addr = _dev0addr;
         dev1addr = _dev1addr;
         dev2addr = _dev2addr;
+        emit SetDevAddress(dev0addr, dev1addr, dev2addr);
     }
     function setSafuAddress(address _safuaddr) public onlyOwner{
+        require(_safuaddr != address(0), "Zero");
         safuaddr = _safuaddr;
+        emit SetSafuAddress(safuaddr);
     }
     function setTreasuryAddress(address _treasuryaddr) public onlyOwner{
+        require(_treasuryaddr != address(0), "Zero");
         treasuryaddr = _treasuryaddr;
+        emit SetTreasuryAddress(treasuryaddr);
     }
     function updateLcPerBlock(uint256 newAmount) public onlyOwner {
         require(newAmount <= 100 * 1e18, 'Max per block 100 LC');
         require(newAmount >= 1 * 1e15, 'Min per block 0.001 LC');
         LCPerBlock = newAmount;
+        emit UpdateLcPerBlock(LCPerBlock);
     }
     // Update referral commission rate by the owner
     function setReferralCommissionRate(uint16 _referralCommissionRate) public onlyOwner {
         require(_referralCommissionRate <= MAXIMUM_REFERRAL_COMMISSION_RATE, "setReferralCommissionRate: invalid referral commission rate basis points");
         referralCommissionRate = _referralCommissionRate;
+        emit SetReferralCommissionRate(referralCommissionRate);
+    }
+
+    function setReferral(address _lcReferral) public onlyOwner {
+        require(_lcReferral != address(0), "Zero");
+        luckychipReferral = ILuckyChipReferral(_lcReferral);
+        emit SetLcReferral(_lcReferral);
     }
 
     // Pay referral commission to the referrer who referred this user.
