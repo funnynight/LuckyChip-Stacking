@@ -4,7 +4,8 @@ const HDWalletProvider = require('@truffle/hdwallet-provider');
 
 module.exports = {
   plugins: [
-    'truffle-plugin-verify'
+    'truffle-plugin-verify',
+    'truffle-contract-size'
   ],
   api_keys:{
 	bscscan: process.env.BSC_API_KEY

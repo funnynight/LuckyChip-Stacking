@@ -26,6 +26,7 @@
     "@truffle/hdwallet-provider": "^1.0.21",
     "jsbi": "^3.1.4",
     "truffle": "^5.2.5",
+    "truffle-contract-size": "^2.0.1",
     "truffle-flattener": "^1.4.4"
   },
   "devDependencies": {
