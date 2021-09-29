@@ -317,13 +317,14 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 			uint256 amount = currentBalance.sub(bonusPool.lastBalance);
             for(uint256 i = 0; i < poolInfo.length; i ++){
                 PoolInfo storage pool = poolInfo[i];
+                if(pool.bonusPoint <= 0){
+                    continue;
+                }
                 uint256 lpSupply = pool.lpToken.balanceOf(address(this));
                 if(lpSupply <= 0){
                     continue;
                 }
-                if (pool.bonusPoint > 0){
-                    poolBonusPerShare[i][_bonusId] = poolBonusPerShare[i][_bonusId].add(amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
-                }
+                poolBonusPerShare[i][_bonusId] = poolBonusPerShare[i][_bonusId].add(amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
             }
 			bonusPool.lastBalance = currentBalance;
 			bonusPool.lastRewardBlock = block.number;
