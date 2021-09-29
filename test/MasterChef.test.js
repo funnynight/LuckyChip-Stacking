@@ -30,7 +30,7 @@ contract('MasterChef', ([alice, bob, carol, dev0, dev1, dev2, safuAddr, treasury
        // await this.lp3.transfer(bob, '2000', { from: minter });
     });
     it('real case', async () => {
-        await this.chef.add('1000', '0', this.lp1.address, true, { from: minter });
+        await this.chef.add('1000', '0', this.lp1.address, { from: minter });
 		assert.equal((await this.chef.poolLength()).toString(), "1");
 		assert.equal((await this.chef.totalAllocPoint()).toString(), "1000");
 		assert.equal((await this.chef.totalBonusPoint()).toString(), "0");
@@ -78,7 +78,7 @@ contract('MasterChef', ([alice, bob, carol, dev0, dev1, dev2, safuAddr, treasury
         console.log('treasury address balance: ', balanceTreasury.toString());
     })
     it('bonus', async () => {
-        await this.chef.add('1000', '90', this.lp1.address, true, { from: minter });
+        await this.chef.add('1000', '90', this.lp1.address, { from: minter });
 		assert.equal((await this.chef.poolLength()).toString(), "1");
 		pool = await this.chef.poolInfo(0, {from:minter});
 		console.log(`${pool[0]},${pool[1]},${pool[2]},${pool[3]},${pool[4]}`);

@@ -68,6 +68,8 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     uint256 public dev2Percent;
     //Safu fund percent from token per block
     uint256 public safuPercent;
+    // devFee ratio, range [0, percentDec]
+    uint256 public devFeeRatio;
     // Dev0 address.
     address public dev0addr;
     // Dev1 address.
@@ -100,6 +102,8 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     uint256 public totalBonusPoint = 0;
     // The block number when LC mining starts.
     uint256 public startBlock;
+    // LC DiceToken pid
+    uint256 public lcDicePid;
 
     // LuckyChip referral contract address.
     ILuckyChipReferral public luckychipReferral;
@@ -111,6 +115,8 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     event SetDevAddress(address indexed dev0Addr, address indexed dev1Addr, address indexed dev2Addr);
     event SetSafuAddress(address indexed safuAddr);
     event SetTreasuryAddress(address indexed treasuryAddr);
+    event SetLcDicePid(uint256 lcDicePid);
+    event SetDevFeeRatio(uint256 devFeeRatio);
     event UpdateLcPerBlock(uint256 lcPerBlock);
     event SetReferralCommissionRate(uint256 commissionRate);
     event SetLcReferral(address _lcReferral);
@@ -155,6 +161,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         dev2Percent = _dev2Percent;
         safuPercent = _safuPercent;
         lastBlockDevWithdraw = _startBlock;
+        devFeeRatio = percentDec;
     }
 
     function updateMultiplier(uint256 multiplierNumber) public onlyOwner {
@@ -173,10 +180,10 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         require(lastBlockDevWithdraw < block.number, 'wait for new block');
         uint256 multiplier = getMultiplier(lastBlockDevWithdraw, block.number);
         uint256 LCReward = multiplier.mul(LCPerBlock);
-        LC.mint(dev0addr, LCReward.mul(dev0Percent).div(percentDec));
-        LC.mint(dev1addr, LCReward.mul(dev1Percent).div(percentDec));
-        LC.mint(dev2addr, LCReward.mul(dev2Percent).div(percentDec));
-        LC.mint(safuaddr, LCReward.mul(safuPercent).div(percentDec));
+        LC.mint(dev0addr, LCReward.mul(dev0Percent).div(percentDec).mul(devFeeRatio).div(percentDec));
+        LC.mint(dev1addr, LCReward.mul(dev1Percent).div(percentDec).mul(devFeeRatio).div(percentDec));
+        LC.mint(dev2addr, LCReward.mul(dev2Percent).div(percentDec).mul(devFeeRatio).div(percentDec));
+        LC.mint(safuaddr, LCReward.mul(safuPercent).div(percentDec).mul(devFeeRatio).div(percentDec));
         lastBlockDevWithdraw = block.number;
     }
 
@@ -235,10 +242,12 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Update the given pool's LC allocation point. Can only be called by the owner.
-    function set( uint256 _pid, uint256 _allocPoint) public onlyOwner validPool(_pid) {
+    function set(uint256 _pid, uint256 _allocPoint, uint256 _bonusPoint) public onlyOwner validPool(_pid) {
         massUpdatePools();
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
+        totalBonusPoint = totalBonusPoint.sub(poolInfo[_pid].bonusPoint).add(_bonusPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
+        poolInfo[_pid].bonusPoint = _bonusPoint;
     }
 
     // Return reward multiplier over the given _from to _to block.
@@ -425,6 +434,12 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         }
     }
     
+    // get LCDiceToken amount
+    function getStackLcDice(address _user) public view returns (uint256 amount){ 
+        require(lcDicePid < poolInfo.length, 'lcDice pool not exist');
+        return userInfo[lcDicePid][_user].amount;
+    }
+
     function setDevAddress(address _dev0addr,address _dev1addr,address _dev2addr) public onlyOwner {
         require(_dev0addr != address(0) && _dev1addr != address(0) && _dev2addr != address(0), "Zero");
         dev0addr = _dev0addr;
@@ -441,6 +456,15 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         require(_treasuryaddr != address(0), "Zero");
         treasuryaddr = _treasuryaddr;
         emit SetTreasuryAddress(treasuryaddr);
+    }
+    function setLcDicePid(uint256 _lcDicePid) public onlyOwner validPool(_lcDicePid) {
+        lcDicePid = _lcDicePid;
+        emit SetLcDicePid(lcDicePid);
+    }
+    function setDevFeeRatio(uint256 _devFeeRatio) public onlyOwner{
+        require(_devFeeRatio > 0 && _devFeeRatio <= percentDec, "defFeeRatio range");
+        devFeeRatio = _devFeeRatio;
+        emit SetDevFeeRatio(devFeeRatio);
     }
     function updateLcPerBlock(uint256 newAmount) public onlyOwner {
         require(newAmount <= 100 * 1e18, 'Max per block 100 LC');
