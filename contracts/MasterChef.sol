@@ -68,8 +68,8 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     uint256 public dev2Percent;
     //Safu fund percent from token per block
     uint256 public safuPercent;
-    // devFee ratio, range [0, percentDec]
-    uint256 public devFeeRatio;
+    // devFee reduction ratio, range [0, percentDec]
+    uint256 public devFeeReduction;
     // Dev0 address.
     address public dev0addr;
     // Dev1 address.
@@ -116,7 +116,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     event SetSafuAddress(address indexed safuAddr);
     event SetTreasuryAddress(address indexed treasuryAddr);
     event SetLcDicePid(uint256 lcDicePid);
-    event SetDevFeeRatio(uint256 devFeeRatio);
+    event SetDevFeeReduction(uint256 devFeeReduction);
     event UpdateLcPerBlock(uint256 lcPerBlock);
     event SetReferralCommissionRate(uint256 commissionRate);
     event SetLcReferral(address _lcReferral);
@@ -161,7 +161,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         dev2Percent = _dev2Percent;
         safuPercent = _safuPercent;
         lastBlockDevWithdraw = _startBlock;
-        devFeeRatio = percentDec;
+        devFeeReduction = percentDec;
     }
 
     function updateMultiplier(uint256 multiplierNumber) public onlyOwner {
@@ -180,10 +180,10 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         require(lastBlockDevWithdraw < block.number, 'wait for new block');
         uint256 multiplier = getMultiplier(lastBlockDevWithdraw, block.number);
         uint256 LCReward = multiplier.mul(LCPerBlock);
-        LC.mint(dev0addr, LCReward.mul(dev0Percent).div(percentDec).mul(devFeeRatio).div(percentDec));
-        LC.mint(dev1addr, LCReward.mul(dev1Percent).div(percentDec).mul(devFeeRatio).div(percentDec));
-        LC.mint(dev2addr, LCReward.mul(dev2Percent).div(percentDec).mul(devFeeRatio).div(percentDec));
-        LC.mint(safuaddr, LCReward.mul(safuPercent).div(percentDec).mul(devFeeRatio).div(percentDec));
+        LC.mint(dev0addr, LCReward.mul(dev0Percent).div(percentDec).mul(devFeeReduction).div(percentDec));
+        LC.mint(dev1addr, LCReward.mul(dev1Percent).div(percentDec).mul(devFeeReduction).div(percentDec));
+        LC.mint(dev2addr, LCReward.mul(dev2Percent).div(percentDec).mul(devFeeReduction).div(percentDec));
+        LC.mint(safuaddr, LCReward.mul(safuPercent).div(percentDec).mul(devFeeReduction).div(percentDec));
         lastBlockDevWithdraw = block.number;
     }
 
@@ -462,10 +462,10 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         lcDicePid = _lcDicePid;
         emit SetLcDicePid(lcDicePid);
     }
-    function setDevFeeRatio(uint256 _devFeeRatio) public onlyOwner{
-        require(_devFeeRatio > 0 && _devFeeRatio <= percentDec, "defFeeRatio range");
-        devFeeRatio = _devFeeRatio;
-        emit SetDevFeeRatio(devFeeRatio);
+    function setDevFeeReduction(uint256 _devFeeReduction) public onlyOwner{
+        require(_devFeeReduction > 0 && _devFeeReduction <= percentDec, "defFeeReduction range");
+        devFeeReduction = _devFeeReduction;
+        emit SetDevFeeReduction(devFeeReduction);
     }
     function updateLcPerBlock(uint256 newAmount) public onlyOwner {
         require(newAmount <= 100 * 1e18, 'Max per block 100 LC');
