@@ -102,8 +102,6 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     uint256 public totalBonusPoint = 0;
     // The block number when LC mining starts.
     uint256 public startBlock;
-    // LC DiceToken pid
-    uint256 public lcDicePid;
 
     // LuckyChip referral contract address.
     ILuckyChipReferral public luckychipReferral;
@@ -115,7 +113,6 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     event SetDevAddress(address indexed dev0Addr, address indexed dev1Addr, address indexed dev2Addr);
     event SetSafuAddress(address indexed safuAddr);
     event SetTreasuryAddress(address indexed treasuryAddr);
-    event SetLcDicePid(uint256 lcDicePid);
     event SetDevFeeReduction(uint256 devFeeReduction);
     event UpdateLcPerBlock(uint256 lcPerBlock);
     event SetReferralCommissionRate(uint256 commissionRate);
@@ -435,10 +432,9 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         }
     }
     
-    // get LCDiceToken amount
-    function getStackLcDice(address _user) public view returns (uint256 amount){ 
-        require(lcDicePid < poolInfo.length, 'lcDice pool not exist');
-        return userInfo[lcDicePid][_user].amount;
+    // get stack amount
+    function getStackAmount(uint256 _pid, address _user) public view validPool(_pid) returns (uint256 amount){ 
+        return userInfo[_pid][_user].amount;
     }
 
     function setDevAddress(address _dev0addr,address _dev1addr,address _dev2addr) public onlyOwner {
@@ -457,10 +453,6 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         require(_treasuryaddr != address(0), "Zero");
         treasuryaddr = _treasuryaddr;
         emit SetTreasuryAddress(treasuryaddr);
-    }
-    function setLcDicePid(uint256 _lcDicePid) public onlyOwner validPool(_lcDicePid) {
-        lcDicePid = _lcDicePid;
-        emit SetLcDicePid(lcDicePid);
     }
     function setDevFeeReduction(uint256 _devFeeReduction) public onlyOwner{
         require(_devFeeReduction > 0 && _devFeeReduction <= percentDec, "defFeeReduction range");
