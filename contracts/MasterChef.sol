@@ -3,13 +3,12 @@
 pragma solidity 0.6.12;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
-import "./libs/IBEP20.sol";
-import "./libs/SafeBEP20.sol";
-import "./libs/ILuckyChipReferral.sol";
-import "./libs/IMasterChef.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-
+import "./interfaces/IBEP20.sol";
+import "./interfaces/ILuckyChipReferral.sol";
+import "./interfaces/IMasterChef.sol";
+import "./libs/SafeBEP20.sol";
 import "./LCToken.sol";
 
 // MasterChef is the master of LC. He can make LC and he is a fair guy.

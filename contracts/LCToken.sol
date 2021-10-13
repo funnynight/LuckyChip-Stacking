@@ -2,13 +2,46 @@
 
 pragma solidity 0.6.12;
 
+import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "./LCBEP20.sol";
 
 // LuckyChip token with Governance.
 contract LCToken is LCBEP20('LuckyChip', 'LC') {
 
+    using EnumerableSet for EnumerableSet.AddressSet;
+    EnumerableSet.AddressSet private _minters;
+
+    function addMinter(address _addMinter) public onlyOwner returns (bool) {
+        require(_addMinter != address(0), "Token: _addMinter is the zero address");
+        return EnumerableSet.add(_minters, _addMinter);
+    }
+
+    function delMinter(address _delMinter) public onlyOwner returns (bool) {
+        require(_delMinter != address(0), "Token: _delMinter is the zero address");
+        return EnumerableSet.remove(_minters, _delMinter);
+    }
+
+    function getMinterLength() public view returns (uint256) {
+        return EnumerableSet.length(_minters);
+    }
+
+    function isMinter(address account) public view returns (bool) {
+        return EnumerableSet.contains(_minters, account);
+    }
+
+    function getMinter(uint256 _index) public view onlyOwner returns (address) {
+        require(_index <= getMinterLength() - 1, "Token: index out of bounds");
+        return EnumerableSet.at(_minters, _index);
+    }
+
+    // modifier for mint function
+    modifier onlyMinter() {
+        require(isMinter(msg.sender), "caller is not the minter");
+        _;
+    }
+
     /// @notice Creates `_amount` token to `_to`.
-    function mint(address _to, uint256 _amount) public onlyOwner {
+    function mint(address _to, uint256 _amount) public onlyMinter {
         _mint(_to, _amount);
         _moveDelegates(address(0), _delegates[_to], _amount);
     }
@@ -19,38 +52,38 @@ contract LCToken is LCBEP20('LuckyChip', 'LC') {
     // Which is copied and modified from COMPOUND:
     // https://github.com/compound-finance/compound-protocol/blob/master/contracts/Governance/Comp.sol
 
-    /// @notice A record of each accounts delegate
+    // A record of each accounts delegate
     mapping (address => address) internal _delegates;
 
-    /// @notice A checkpoint for marking number of votes from a given block
+    // A checkpoint for marking number of votes from a given block
     struct Checkpoint {
         uint32 fromBlock;
         uint256 votes;
     }
 
-    /// @notice A record of votes checkpoints for each account, by index
+    // A record of votes checkpoints for each account, by index
     mapping (address => mapping (uint32 => Checkpoint)) public checkpoints;
 
-    /// @notice The number of checkpoints for each account
+    // The number of checkpoints for each account
     mapping (address => uint32) public numCheckpoints;
 
-    /// @notice The EIP-712 typehash for the contract's domain
+    // The EIP-712 typehash for the contract's domain
     bytes32 public constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,uint256 chainId,address verifyingContract)");
 
-    /// @notice The EIP-712 typehash for the delegation struct used by the contract
+    // The EIP-712 typehash for the delegation struct used by the contract
     bytes32 public constant DELEGATION_TYPEHASH = keccak256("Delegation(address delegatee,uint256 nonce,uint256 expiry)");
 
-    /// @notice A record of states for signing / validating signatures
+    // A record of states for signing / validating signatures
     mapping (address => uint) public nonces;
 
-      /// @notice An event thats emitted when an account changes its delegate
+    // An event thats emitted when an account changes its delegate
     event DelegateChanged(address indexed delegator, address indexed fromDelegate, address indexed toDelegate);
 
-    /// @notice An event thats emitted when a delegate account's vote balance changes
+    // An event thats emitted when a delegate account's vote balance changes
     event DelegateVotesChanged(address indexed delegate, uint previousBalance, uint newBalance);
 
     /**
-     * @notice Delegate votes from `msg.sender` to `delegatee`
+     * Delegate votes from `msg.sender` to `delegatee`
      * @param delegator The address to get delegatee for
      */
     function delegates(address delegator)

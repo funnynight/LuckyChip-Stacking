@@ -4,7 +4,7 @@ pragma solidity >=0.4.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
-import "./libs/IBEP20.sol";
+import "./interfaces/IBEP20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 
@@ -204,19 +204,6 @@ contract LCBEP20 is Context, IBEP20, Ownable {
             spender,
             _allowances[_msgSender()][spender].sub(subtractedValue, "BEP20: decreased allowance below zero")
         );
-        return true;
-    }
-
-    /**
-     * @dev Creates `amount` tokens and assigns them to `msg.sender`, increasing
-     * the total supply.
-     *
-     * Requirements
-     *
-     * - `msg.sender` must be the token owner
-     */
-    function mint(uint256 amount) public onlyOwner returns (bool) {
-        _mint(_msgSender(), amount);
         return true;
     }
 

@@ -7,4 +7,5 @@ interface IMasterChef {
      * @dev Update bonus.
      */
     function updateBonus(uint256 _pid) external;
+
 }
