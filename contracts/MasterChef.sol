@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/ILuckyChipReferral.sol";
 import "./interfaces/IMasterChef.sol";
-import "./libs/SafeBEP20.sol";
+import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
 
 // MasterChef is the master of LC. He can make LC and he is a fair guy.

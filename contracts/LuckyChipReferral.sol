@@ -4,7 +4,7 @@ pragma solidity 0.6.12;
 
 import "./interfaces/IBEP20.sol";
 import "./interfaces/ILuckyChipReferral.sol";
-import "./libs/SafeBEP20.sol";
+import "./libraries/SafeBEP20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract LuckyChipReferral is ILuckyChipReferral, Ownable {

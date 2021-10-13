@@ -40,7 +40,7 @@ contract LCToken is LCBEP20('LuckyChip', 'LC') {
         _;
     }
 
-    /// @notice Creates `_amount` token to `_to`.
+    // @notice Creates `_amount` token to `_to`.
     function mint(address _to, uint256 _amount) public onlyMinter {
         _mint(_to, _amount);
         _moveDelegates(address(0), _delegates[_to], _amount);
