@@ -24,7 +24,7 @@ contract BetMining is Ownable {
 
     using EnumerableSet for EnumerableSet.AddressSet;
     EnumerableSet.AddressSet private _betTables;
-    EnumerableSet.AddressSet private _pairs;
+    EnumerableSet.AddressSet private _tokens;
 
     // Info of each user.
     struct UserInfo {
@@ -44,7 +44,7 @@ contract BetMining is Ownable {
 
     // Info of each pool.
     struct PoolInfo {
-        address pair; // Address of LP token contract.
+        address token; // Address of LP token contract.
         uint256 allocPoint; // How many allocation points assigned to this pool. reward tokens to distribute per block.
         uint256 lastRewardBlock; // Last block number that reward tokens distribution occurs.
         uint256 accRewardPerShare; // Accumulated reward tokens per share, times 1e12.
@@ -56,7 +56,7 @@ contract BetMining is Ownable {
 
     struct PoolView {
         uint256 pid;
-        address pair;
+        address token;
         uint256 allocPoint;
         uint256 lastRewardBlock;
         uint256 rewardsPerBlock;
@@ -84,7 +84,7 @@ contract BetMining is Ownable {
     // Info of each user that stakes LP tokens.
     mapping(uint256 => mapping(address => UserInfo)) public userInfo;
     // pid corresponding address
-    mapping(address => uint256) public pairOfPid;
+    mapping(address => uint256) public tokenOfPid;
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
     uint256 public totalQuantity = 0;
@@ -96,6 +96,26 @@ contract BetMining is Ownable {
     modifier validPool(uint256 _pid){
         require(_pid < poolInfo.length, 'pool not exist');
         _;
+    }
+
+    function isBetTable(address account) public view returns (bool) {
+        return EnumerableSet.contains(_betTables, account);
+    }
+
+    // modifier for mint function
+    modifier onlyBetTable() {
+        require(isBetTable(msg.sender), "caller is not a bet table");
+        _;
+    }
+
+    function addBetTable(address _addBetTable) public onlyOwner returns (bool) {
+        require(_addBetTable != address(0), "Token: _addBetTable is the zero address");
+        return EnumerableSet.add(_betTables, _addBetTable);
+    }
+
+    function delBetTable(address _delBetTable) public onlyOwner returns (bool) {
+        require(_delBetTable != address(0), "Token: _delBetTable is the zero address");
+        return EnumerableSet.remove(_betTables, _delBetTable);
     }
 
     event Swap(address indexed user, uint256 indexed pid, uint256 amount);
@@ -143,17 +163,17 @@ contract BetMining is Ownable {
         return blockReward;
     }
 
-    // Add a new pair to the pool. Can only be called by the owner.
+    // Add a new token to the pool. Can only be called by the owner.
     function add(
         uint256 _allocPoint,
-        address _pair,
+        address _token,
         bool _withUpdate
     ) public onlyOwner {
-        require(_pair != address(0), "BetMining: _pair is the zero address");
+        require(_token != address(0), "BetMining: _token is the zero address");
 
-        require(!EnumerableSet.contains(_pairs, _pair), "BetMining: _pair is already added to the pool");
-        // return EnumerableSet.add(_pairs, _pair);
-        EnumerableSet.add(_pairs, _pair);
+        require(!EnumerableSet.contains(_tokens, _token), "BetMining: _token is already added to the pool");
+        // return EnumerableSet.add(_tokens, _token);
+        EnumerableSet.add(_tokens, _token);
 
         if (_withUpdate) {
             massUpdatePools();
@@ -162,7 +182,7 @@ contract BetMining is Ownable {
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
         poolInfo.push(
             PoolInfo({
-                pair: _pair,
+                token: _token,
                 allocPoint: _allocPoint,
                 lastRewardBlock: lastRewardBlock,
                 accRewardPerShare: 0,
@@ -172,7 +192,7 @@ contract BetMining is Ownable {
                 accRewardAmount: 0
             })
         );
-        pairOfPid[_pair] = getPoolLength() - 1;
+        tokenOfPid[_token] = getPoolLength() - 1;
     }
 
     // Update the given pool's reward token allocation point. Can only be called by the owner.
@@ -226,39 +246,36 @@ contract BetMining is Ownable {
         rewardToken.mint(address(this), tokenReward);
     }
 
-    /*
-    function swap(
+    function bet(
         address account,
-        address input,
-        address output,
+        address token,
         uint256 amount
-    ) public returns (bool) {
-        require(account != address(0), "BetMining: swap account is zero address");
-        require(input != address(0), "BetMining: swap input is zero address");
-        require(output != address(0), "BetMining: swap output is zero address");
+    ) public onlyBetTable returns (bool) {
+        require(account != address(0), "BetMining: bet account is zero address");
+        require(token != address(0), "BetMining: token is zero address");
 
         if (getPoolLength() <= 0) {
             return false;
         }
 
-        address pair = SwapLibrary.pairFor(address(factory), input, output);
-
-        PoolInfo storage pool = poolInfo[pairOfPid[pair]];
+        PoolInfo storage pool = poolInfo[tokenOfPid[token]];
         // If it does not exist or the allocPoint is 0 then return
-        if (pool.pair != pair || pool.allocPoint <= 0) {
+        if (pool.token != token || pool.allocPoint <= 0) {
             return false;
         }
 
-        uint256 quantity = IOracle(oracle).getQuantity(output, amount);
+        uint256 quantity = IOracle(oracle).getQuantity(token, amount);
         if (quantity <= 0) {
             return false;
         }
 
-        updatePool(pairOfPid[pair]);
-        IOracle(oracle).update(input, output);
-        IOracle(oracle).updateBlockInfo();
+        updatePool(tokenOfPid[token]);
+        if(token != address(rewardToken)){
+            IOracle(oracle).update(token, address(rewardToken));
+            IOracle(oracle).updateBlockInfo();
+        }
 
-        UserInfo storage user = userInfo[pairOfPid[pair]][account];
+        UserInfo storage user = userInfo[tokenOfPid[token]][account];
         if (user.quantity > 0) {
             uint256 pendingReward = user.quantity.mul(pool.accRewardPerShare).div(1e12).sub(user.rewardDebt);
             if (pendingReward > 0) {
@@ -274,14 +291,12 @@ contract BetMining is Ownable {
             user.accQuantity = user.accQuantity.add(quantity);
         }
         user.rewardDebt = user.quantity.mul(pool.accRewardPerShare).div(1e12);
-        emit Swap(account, pairOfPid[pair], quantity);
+        emit Swap(account, tokenOfPid[token], quantity);
 
         return true;
     }
-    */
 
-    function pendingRewards(uint256 _pid, address _user) public view returns (uint256) {
-        require(_pid <= poolInfo.length - 1, "BetMining: Can not find this pool");
+    function pendingRewards(uint256 _pid, address _user) public view validPool(_pid) returns (uint256) {
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
@@ -301,7 +316,7 @@ contract BetMining is Ownable {
         return 0;
     }
 
-    function withdraw(uint256 _pid) public {
+    function withdraw(uint256 _pid) public validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][tx.origin];
 
@@ -326,7 +341,7 @@ contract BetMining is Ownable {
         }
     }
 
-    function emergencyWithdraw(uint256 _pid) public {
+    function emergencyWithdraw(uint256 _pid) public validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
@@ -368,13 +383,20 @@ contract BetMining is Ownable {
         oracle = _oracle;
     }
 
-    function getPairsLength() public view returns (uint256) {
-        return EnumerableSet.length(_pairs);
+    function getLpTokensLength() public view returns (uint256) {
+        return EnumerableSet.length(_tokens);
     }
 
-    function getPairs(uint256 _index) public view returns (address) {
-        require(_index <= getPairsLength() - 1, "BetMining: index out of bounds");
-        return EnumerableSet.at(_pairs, _index);
+    function getLpToken(uint256 _index) public view returns (address) {
+        return EnumerableSet.at(_tokens, _index);
+    }
+
+    function getBetTableLength() public view returns (uint256) {
+        return EnumerableSet.length(_betTables);
+    }
+
+    function getBetTable(uint256 _index) public view returns (address) {
+        return EnumerableSet.at(_betTables, _index);
     }
 
     function getPoolLength() public view returns (uint256) {
@@ -392,7 +414,7 @@ contract BetMining is Ownable {
         return
             PoolView({
                 pid: pid,
-                pair: pair,
+                token: token,
                 allocPoint: pool.allocPoint,
                 lastRewardBlock: pool.lastRewardBlock,
                 accRewardPerShare: pool.accRewardPerShare,
@@ -412,8 +434,8 @@ contract BetMining is Ownable {
             });
     }
 
-    function getPoolViewByAddress(address pair) public view returns (PoolView memory) {
-        uint256 pid = pairOfPid[pair];
+    function getPoolViewByAddress(address token) public view returns (PoolView memory) {
+        uint256 pid = tokenOfPid[token];
         return getPoolView(pid);
     }
 
@@ -426,8 +448,8 @@ contract BetMining is Ownable {
     }
     */
 
-    function getUserView(address pair, address account) public view returns (UserView memory) {
-        uint256 pid = pairOfPid[pair];
+    function getUserView(address token, address account) public view returns (UserView memory) {
+        uint256 pid = tokenOfPid[token];
         UserInfo memory user = userInfo[pid][account];
         uint256 unclaimedRewards = pendingRewards(pid, account);
         return
@@ -440,11 +462,11 @@ contract BetMining is Ownable {
     }
 
     function getUserViews(address account) external view returns (UserView[] memory) {
-        address pair;
+        address token;
         UserView[] memory views = new UserView[](poolInfo.length);
         for (uint256 i = 0; i < poolInfo.length; i++) {
-            pair = address(poolInfo[i].pair);
-            views[i] = getUserView(pair, account);
+            token = address(poolInfo[i].token);
+            views[i] = getUserView(token, account);
         }
         return views;
     }
