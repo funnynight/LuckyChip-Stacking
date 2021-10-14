@@ -7,16 +7,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "./interfaces/IBEP20.sol";
+import "./interfaces/IMiningOracle.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
-
-interface IOracle {
-    function update(address tokenA, address tokenB) external returns (bool);
-
-    function updateBlockInfo() external returns (bool);
-
-    function getQuantity(address token, uint256 amount) external view returns (uint256);
-}
 
 contract BetMining is Ownable {
     using SafeMath for uint256;
@@ -65,14 +58,9 @@ contract BetMining is Ownable {
         uint256 accRewardAmount;
         uint256 quantity;
         uint256 accQuantity;
-        address token0;
-        string symbol0;
-        string name0;
-        uint8 decimals0;
-        address token1;
-        string symbol1;
-        string name1;
-        uint8 decimals1;
+        string symbol;
+        string name;
+        uint8 decimals;
     }
 
     // The reward token!
@@ -88,7 +76,7 @@ contract BetMining is Ownable {
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
     uint256 public totalQuantity = 0;
-    IOracle public oracle;
+    IMiningOracle public oracle;
     // The block number when reward token mining starts.
     uint256 public startBlock;
     uint256 public halvingPeriod = 3952800; // half year
@@ -123,13 +111,13 @@ contract BetMining is Ownable {
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
 
     constructor(
-        LCToken _rewardToken,
-        IOracle _oracle,
+        address _rewardTokenAddr,
+        address _oracleAddr,
         uint256 _rewardTokenPerBlock,
         uint256 _startBlock
     ) public {
-        rewardToken = _rewardToken;
-        oracle = _oracle;
+        rewardToken = LCToken(_rewardTokenAddr);
+        oracle = IMiningOracle(_oracleAddr);
         rewardTokenPerBlock = _rewardTokenPerBlock;
         startBlock = _startBlock;
     }
@@ -264,15 +252,15 @@ contract BetMining is Ownable {
             return false;
         }
 
-        uint256 quantity = IOracle(oracle).getQuantity(token, amount);
+        uint256 quantity = oracle.getQuantity(token, amount);
         if (quantity <= 0) {
             return false;
         }
 
         updatePool(tokenOfPid[token]);
         if(token != address(rewardToken)){
-            IOracle(oracle).update(token, address(rewardToken));
-            IOracle(oracle).updateBlockInfo();
+            oracle.update(token, address(rewardToken));
+            oracle.updateBlockInfo();
         }
 
         UserInfo storage user = userInfo[tokenOfPid[token]][account];
@@ -378,9 +366,9 @@ contract BetMining is Ownable {
         halvingPeriod = _block;
     }
 
-    function setOracle(IOracle _oracle) public onlyOwner {
-        require(address(_oracle) != address(0), "BetMining: new oracle is the zero address");
-        oracle = _oracle;
+    function setOracle(address _oracleAddr) public onlyOwner {
+        require(_oracleAddr != address(0), "BetMining: new oracle is the zero address");
+        oracle = IMiningOracle(_oracleAddr);
     }
 
     function getLpTokensLength() public view returns (uint256) {
@@ -407,14 +395,14 @@ contract BetMining is Ownable {
         return poolInfo;
     }
 
-    /*
-    function getPoolView(uint256 pid) public view returns (PoolView memory) {
-        require(pid < poolInfo.length, "BetMining: pid out of range");
-        PoolInfo memory pool = poolInfo[pid];
+    function getPoolView(uint256 _pid) public view validPool(_pid) returns (PoolView memory) {
+        PoolInfo memory pool = poolInfo[_pid];
+        IBEP20 tmpToken = IBEP20(pool.token);
+        uint256 rewardsPerBlock = pool.allocPoint.mul(rewardTokenPerBlock).div(totalAllocPoint);
         return
             PoolView({
-                pid: pid,
-                token: token,
+                pid: _pid,
+                token: pool.token,
                 allocPoint: pool.allocPoint,
                 lastRewardBlock: pool.lastRewardBlock,
                 accRewardPerShare: pool.accRewardPerShare,
@@ -423,14 +411,9 @@ contract BetMining is Ownable {
                 accRewardAmount: pool.accRewardAmount,
                 quantity: pool.quantity,
                 accQuantity: pool.accQuantity,
-                token0: address(token0),
-                symbol0: symbol0,
-                name0: name0,
-                decimals0: decimals0,
-                token1: address(token1),
-                symbol1: symbol1,
-                name1: name1,
-                decimals1: decimals1
+                symbol: tmpToken.symbol(),
+                name: tmpToken.name(),
+                decimals: tmpToken.decimals()
             });
     }
 
@@ -446,7 +429,6 @@ contract BetMining is Ownable {
         }
         return views;
     }
-    */
 
     function getUserView(address token, address account) public view returns (UserView memory) {
         uint256 pid = tokenOfPid[token];
