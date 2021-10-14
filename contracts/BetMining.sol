@@ -6,12 +6,13 @@ pragma experimental ABIEncoderV2;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IMiningOracle.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
 
-contract BetMining is Ownable {
+contract BetMining is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
 
@@ -152,20 +153,15 @@ contract BetMining is Ownable {
     }
 
     // Add a new token to the pool. Can only be called by the owner.
-    function add(
-        uint256 _allocPoint,
-        address _token,
-        bool _withUpdate
-    ) public onlyOwner {
+    function add(uint256 _allocPoint, address _token) public onlyOwner {
         require(_token != address(0), "BetMining: _token is the zero address");
 
         require(!EnumerableSet.contains(_tokens, _token), "BetMining: _token is already added to the pool");
         // return EnumerableSet.add(_tokens, _token);
         EnumerableSet.add(_tokens, _token);
 
-        if (_withUpdate) {
-            massUpdatePools();
-        }
+        massUpdatePools();
+
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
         poolInfo.push(
@@ -184,16 +180,9 @@ contract BetMining is Ownable {
     }
 
     // Update the given pool's reward token allocation point. Can only be called by the owner.
-    function set(
-        uint256 _pid,
-        uint256 _allocPoint,
-        bool _withUpdate
-    ) public onlyOwner {
-        require(_pid < poolInfo.length, "overflow");
+    function set(uint256 _pid, uint256 _allocPoint) public onlyOwner validPool(_pid) {
+        massUpdatePools();
 
-        if (_withUpdate) {
-            massUpdatePools();
-        }
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
     }
@@ -207,7 +196,7 @@ contract BetMining is Ownable {
     }
 
     // Update reward variables of the given pool to be up-to-date.
-    function updatePool(uint256 _pid) public {
+    function updatePool(uint256 _pid) public validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         if (block.number <= pool.lastRewardBlock) {
             return;
@@ -238,7 +227,7 @@ contract BetMining is Ownable {
         address account,
         address token,
         uint256 amount
-    ) public onlyBetTable returns (bool) {
+    ) public onlyBetTable nonReentrant returns (bool) {
         require(account != address(0), "BetMining: bet account is zero address");
         require(token != address(0), "BetMining: token is zero address");
 
@@ -304,7 +293,7 @@ contract BetMining is Ownable {
         return 0;
     }
 
-    function withdraw(uint256 _pid) public validPool(_pid) {
+    function withdraw(uint256 _pid) public validPool(_pid) nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][tx.origin];
 
@@ -323,13 +312,13 @@ contract BetMining is Ownable {
         emit Withdraw(tx.origin, _pid, pendingAmount);
     }
 
-    function harvestAll() public {
+    function harvestAll() public nonReentrant {
         for (uint256 i = 0; i < poolInfo.length; i++) {
             withdraw(i);
         }
     }
 
-    function emergencyWithdraw(uint256 _pid) public validPool(_pid) {
+    function emergencyWithdraw(uint256 _pid) public validPool(_pid) nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
