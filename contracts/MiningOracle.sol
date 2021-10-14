@@ -9,10 +9,11 @@ import './libraries/FixedPoint.sol';
 import './libraries/LuckyChipOracleLibrary.sol';
 import './libraries/LuckyChipLibrary.sol';
 import "./interfaces/IBEP20.sol";
+import "./interfaces/IMiningOracle.sol";
 import './interfaces/ILuckyChipFactory.sol';
 import './interfaces/ILuckyChipPair.sol';
 
-contract Oracle is Ownable {
+contract MiningOracle is Ownable, IMiningOracle {
     using FixedPoint for *;
     using SafeMath for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -42,7 +43,7 @@ contract Oracle is Ownable {
         anchorToken = _anchorToken;
     }
 
-    function update(address tokenA, address tokenB) external returns (bool) {
+    function update(address tokenA, address tokenB) external override returns (bool) {
         address pair = LuckyChipLibrary.pairFor(factory, tokenA, tokenB);
         if (pair == address(0)) return false;
 
@@ -57,7 +58,7 @@ contract Oracle is Ownable {
         return true;
     }
 
-    function updateBlockInfo() external returns (bool) {
+    function updateBlockInfo() external override returns (bool) {
         if ((block.number - blockInfo.height) < 1000) return false;
 
         blockInfo.height = block.number;
@@ -98,7 +99,7 @@ contract Oracle is Ownable {
     }
 
     // used for trading pool to calculate quantity
-    function getQuantity(address token, uint256 amount) public view returns (uint256 quantity) {
+    function getQuantity(address token, uint256 amount) public override view returns (uint256 quantity) {
         uint256 decimal = IBEP20(token).decimals();
         if (token == anchorToken) {
             quantity = amount;
