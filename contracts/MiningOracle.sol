@@ -158,7 +158,7 @@ contract MiningOracle is Ownable, IMiningOracle {
         }
     }
 
-    function getLpTokenValue(address _lpToken, uint256 _amount) public view returns (uint256 value) {
+    function getLpTokenValue(address _lpToken, uint256 _amount) public override view returns (uint256 value) {
         uint256 totalSupply = IBEP20(_lpToken).totalSupply();
         address token0 = ILuckyChipPair(_lpToken).token0();
         address token1 = ILuckyChipPair(_lpToken).token1();

@@ -107,7 +107,7 @@ contract BetMining is Ownable, ReentrancyGuard {
         return EnumerableSet.remove(_betTables, _delBetTable);
     }
 
-    event Swap(address indexed user, uint256 indexed pid, uint256 amount);
+    event Bet(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
 
@@ -268,7 +268,7 @@ contract BetMining is Ownable, ReentrancyGuard {
             user.accQuantity = user.accQuantity.add(quantity);
         }
         user.rewardDebt = user.quantity.mul(pool.accRewardPerShare).div(1e12);
-        emit Swap(account, tokenOfPid[token], quantity);
+        emit Bet(account, tokenOfPid[token], quantity);
 
         return true;
     }

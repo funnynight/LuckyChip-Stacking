@@ -6,185 +6,127 @@ pragma experimental ABIEncoderV2;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IMiningOracle.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
 
-contract LuckyPower is Ownable {
+contract LuckyPower is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
 
     using EnumerableSet for EnumerableSet.AddressSet;
-    EnumerableSet.AddressSet private _betTables;
     EnumerableSet.AddressSet private _tokens;
+    EnumerableSet.AddressSet private _updaters;
 
-    // Info of each user.
+    // Power quantity info of each user.
     struct UserInfo {
         uint256 quantity;
+        uint256 lpQuantity;
+        uint256 bankerQuantity;
+        uint256 playerQuantity;
         uint256 accQuantity;
-        uint256 pendingReward;
-        uint256 rewardDebt; // Reward debt.
-        uint256 accRewardAmount; // How many rewards the user has got.
     }
+
+    // Reward info of each user for each bonus
+    struct UserRewardInfo {
+        uint256 pendingReward;
+        uint256 rewardDebt;
+        uint256 accRewardAmount;
+    }
+
 
     // Info of each pool.
     struct BonusInfo {
         address token; // Address of bonus token contract.
-        uint256 lastBalance; // lastBalance
         uint256 lastRewardBlock; // Last block number that reward tokens distribution occurs.
         uint256 accRewardPerShare; // Accumulated reward tokens per share, times 1e12.
-        uint256 quantity;
-        uint256 accQuantity;
         uint256 allocRewardAmount;
         uint256 accRewardAmount;
     }
 
-    // The reward token!
-    LCToken public rewardToken;
-    // reward tokens created per block.
-    uint256 public rewardTokenPerBlock;
-    // Info of each pool.
-    PoolInfo[] public poolInfo;
+    uint256 public quantity;
+    uint256 public accQuantity;
+
+    uint256 private unlocked = 1;
+
+    // Lc token
+    LCToken public lcToken;
+    // Info of each bonus.
+    BonusInfo[] public bonusInfo;
+    // token address to its corresponding id
+    mapping(address => uint256) public tokenIdMap;
     // Info of each user that stakes LP tokens.
-    mapping(uint256 => mapping(address => UserInfo)) public userInfo;
-    // pid corresponding address
-    mapping(address => uint256) public tokenOfPid;
-    // Total allocation points. Must be the sum of all allocation points in all pools.
-    uint256 public totalAllocPoint = 0;
-    uint256 public totalQuantity = 0;
+    mapping(address => UserInfo) public userInfo;
+    // user pending bonus 
+    mapping(uint256 => mapping(address => UserRewardInfo)) public userRewardInfo;
+
     IMiningOracle public oracle;
-    // The block number when reward token mining starts.
-    uint256 public startBlock;
-    uint256 public halvingPeriod = 3952800; // half year
 
-    modifier validPool(uint256 _pid){
-        require(_pid < poolInfo.length, 'pool not exist');
-        _;
-    }
-
-    function isBetTable(address account) public view returns (bool) {
-        return EnumerableSet.contains(_betTables, account);
+    function isUpdater(address account) public view returns (bool) {
+        return EnumerableSet.contains(_updaters, account);
     }
 
     // modifier for mint function
-    modifier onlyBetTable() {
-        require(isBetTable(msg.sender), "caller is not a bet table");
+    modifier onlyUpdater() {
+        require(isUpdater(msg.sender), "caller is not a updater");
         _;
     }
 
-    function addBetTable(address _addBetTable) public onlyOwner returns (bool) {
-        require(_addBetTable != address(0), "Token: _addBetTable is the zero address");
-        return EnumerableSet.add(_betTables, _addBetTable);
+    // lock modifier
+    modifier lock() {
+        require(unlocked == 1, 'LuckyPower: LOCKED');
+        unlocked = 0;
+        _;
+        unlocked = 1;
     }
 
-    function delBetTable(address _delBetTable) public onlyOwner returns (bool) {
-        require(_delBetTable != address(0), "Token: _delBetTable is the zero address");
-        return EnumerableSet.remove(_betTables, _delBetTable);
+    function addUpdater(address _addUpdater) public onlyOwner returns (bool) {
+        require(_addUpdater != address(0), "Token: _addUpdater is the zero address");
+        return EnumerableSet.add(_updaters, _addUpdater);
     }
 
-    event Swap(address indexed user, uint256 indexed pid, uint256 amount);
+    function delUpdater(address _delUpdater) public onlyOwner returns (bool) {
+        require(_delUpdater != address(0), "Token: _delUpdater is the zero address");
+        return EnumerableSet.remove(_updaters, _delUpdater);
+    } 
+
+    event UpdatePower(address indexed user, uint256 lpPower, uint256 bankerPower, uint256 playerPower);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
 
     constructor(
-        address _rewardTokenAddr,
+        address _lcTokenAddr,
         address _oracleAddr,
-        uint256 _rewardTokenPerBlock,
-        uint256 _startBlock
     ) public {
-        rewardToken = LCToken(_rewardTokenAddr);
+        lcToken = LCToken(_lcTokenAddr);
         oracle = IMiningOracle(_oracleAddr);
-        rewardTokenPerBlock = _rewardTokenPerBlock;
-        startBlock = _startBlock;
-    }
-
-    function phase(uint256 blockNumber) public view returns (uint256) {
-        if (halvingPeriod == 0) {
-            return 0;
-        }
-        if (blockNumber > startBlock) {
-            return (blockNumber.sub(startBlock)).div(halvingPeriod);
-        }
-        return 0;
-    }
-
-    function getRewardTokenPerBlock(uint256 blockNumber) public view returns (uint256) {
-        uint256 _phase = phase(blockNumber);
-        return rewardTokenPerBlock.div(2**_phase);
-    }
-
-    function getRewardTokenBlockReward(uint256 _lastRewardBlock) public view returns (uint256) {
-        uint256 blockReward = 0;
-        uint256 lastRewardPhase = phase(_lastRewardBlock);
-        uint256 currentPhase = phase(block.number);
-        while (lastRewardPhase < currentPhase) {
-            lastRewardPhase++;
-            uint256 height = lastRewardPhase.mul(halvingPeriod).add(startBlock);
-            blockReward = blockReward.add((height.sub(_lastRewardBlock)).mul(getRewardTokenPerBlock(height)));
-            _lastRewardBlock = height;
-        }
-        blockReward = blockReward.add((block.number.sub(_lastRewardBlock)).mul(getRewardTokenPerBlock(block.number)));
-        return blockReward;
     }
 
     // Add a new token to the pool. Can only be called by the owner.
-    function add(
-        uint256 _allocPoint,
-        address _token,
-        bool _withUpdate
-    ) public onlyOwner {
+    function addBonus(address _token) public onlyOwner {
         require(_token != address(0), "BetMining: _token is the zero address");
 
         require(!EnumerableSet.contains(_tokens, _token), "BetMining: _token is already added to the pool");
         // return EnumerableSet.add(_tokens, _token);
         EnumerableSet.add(_tokens, _token);
 
-        if (_withUpdate) {
-            massUpdatePools();
-        }
-        uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
-        totalAllocPoint = totalAllocPoint.add(_allocPoint);
-        poolInfo.push(
-            PoolInfo({
+        bonusInfo.push(
+            BonusInfo({
                 token: _token,
-                allocPoint: _allocPoint,
-                lastRewardBlock: lastRewardBlock,
+                lastRewardBlock: block.number,
                 accRewardPerShare: 0,
-                quantity: 0,
-                accQuantity: 0,
                 allocRewardAmount: 0,
                 accRewardAmount: 0
             })
         );
-        tokenOfPid[_token] = getPoolLength() - 1;
-    }
-
-    // Update the given pool's reward token allocation point. Can only be called by the owner.
-    function set(
-        uint256 _pid,
-        uint256 _allocPoint,
-        bool _withUpdate
-    ) public onlyOwner {
-        require(_pid < poolInfo.length, "overflow");
-
-        if (_withUpdate) {
-            massUpdatePools();
-        }
-        totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
-        poolInfo[_pid].allocPoint = _allocPoint;
-    }
-
-    // Update reward variables for all pools. Be careful of gas spending!
-    function massUpdatePools() public {
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; ++pid) {
-            updatePool(pid);
-        }
+        tokenIdMap[_token] = getBonusLength() - 1;
     }
 
     // Update reward variables of the given pool to be up-to-date.
-    function updatePool(uint256 _pid) public {
+    function updateBonus(address bonusToken, uint256 amount) public onlyUpdater nonReentrant{
+
         PoolInfo storage pool = poolInfo[_pid];
         if (block.number <= pool.lastRewardBlock) {
             return;
@@ -215,11 +157,11 @@ contract LuckyPower is Ownable {
         address account,
         address token,
         uint256 amount
-    ) public onlyBetTable returns (bool) {
+    ) public onlyUpdater returns (bool) {
         require(account != address(0), "BetMining: bet account is zero address");
         require(token != address(0), "BetMining: token is zero address");
 
-        if (getPoolLength() <= 0) {
+        if (getBonusLength() <= 0) {
             return false;
         }
 
@@ -356,16 +298,16 @@ contract LuckyPower is Ownable {
         return EnumerableSet.at(_tokens, _index);
     }
 
-    function getBetTableLength() public view returns (uint256) {
-        return EnumerableSet.length(_betTables);
+    function getUpdaterLength() public view returns (uint256) {
+        return EnumerableSet.length(_updaters);
     }
 
-    function getBetTable(uint256 _index) public view returns (address) {
-        return EnumerableSet.at(_betTables, _index);
+    function getUpdater(uint256 _index) public view returns (address) {
+        return EnumerableSet.at(_updaters, _index);
     }
 
-    function getPoolLength() public view returns (uint256) {
-        return poolInfo.length;
+    function getBonusLength() public view returns (uint256) {
+        return bonusInfo.length;
     }
 
 }
