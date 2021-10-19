@@ -9,15 +9,17 @@ import './libraries/FixedPoint.sol';
 import './libraries/LuckyChipOracleLibrary.sol';
 import './libraries/LuckyChipLibrary.sol';
 import "./interfaces/IBEP20.sol";
-import "./interfaces/IMiningOracle.sol";
+import "./interfaces/IOracle.sol";
+import "./interfaces/IDice.sol";
 import './interfaces/ILuckyChipFactory.sol';
 import './interfaces/ILuckyChipPair.sol';
 
-contract MiningOracle is Ownable, IMiningOracle {
+contract Oracle is Ownable, IOracle {
     using FixedPoint for *;
     using SafeMath for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
     EnumerableSet.AddressSet private _routerTokens; // all router token must has pair with anchor token
+    EnumerableSet.AddressSet private _diceTokens; // all dice token
 
     struct Observation {
         uint256 timestamp;
@@ -37,6 +39,9 @@ contract MiningOracle is Ownable, IMiningOracle {
 
     // mapping from pair address to a list of price observations of that pair
     mapping(address => Observation) public pairObservations;
+
+    // mapping from diceToken to dice
+    mapping(address => address) public diceToken2Dice;
 
     constructor(address _factory, address _anchorToken) public {
         factory = _factory;
@@ -158,7 +163,7 @@ contract MiningOracle is Ownable, IMiningOracle {
         }
     }
 
-    function getLpTokenValue(address _lpToken, uint256 _amount) public override view returns (uint256 value) {
+    function getLpTokenValue(address _lpToken, uint256 _amount) public view returns (uint256 value) {
         uint256 totalSupply = IBEP20(_lpToken).totalSupply();
         address token0 = ILuckyChipPair(_lpToken).token0();
         address token1 = ILuckyChipPair(_lpToken).token1();
@@ -170,6 +175,38 @@ contract MiningOracle is Ownable, IMiningOracle {
         uint256 token1Value = (getAveragePrice(token1)).mul(reserve1).div(10**token1Decimal);
         value = (token0Value.add(token1Value)).mul(_amount).div(totalSupply);
     }
+
+    function getLpTokenPower(address _lpToken, uint256 _amount, uint256 _poolType) public override view returns (uint256 value) {
+        if(_poolType != 0){
+            value = 0;    
+        }else{
+            uint256 totalSupply = IBEP20(_lpToken).totalSupply();
+            address token0 = ILuckyChipPair(_lpToken).token0();
+            address token1 = ILuckyChipPair(_lpToken).token1();
+            uint256 token0Decimal = IBEP20(token0).decimals();
+            uint256 token1Decimal = IBEP20(token1).decimals();
+            (uint256 reserve0, uint256 reserve1) = LuckyChipLibrary.getReserves(factory, token0, token1);
+    
+            uint256 token0Value = (getAveragePrice(token0)).mul(reserve0).div(10**token0Decimal);
+            uint256 token1Value = (getAveragePrice(token1)).mul(reserve1).div(10**token1Decimal);
+            value = (token0Value.add(token1Value)).mul(_amount).div(totalSupply);
+        }
+    }
+
+    function getDiceTokenPower(address _diceToken, uint256 _amount, uint256 _poolType) public override view returns (uint256 value) {
+        if(_poolType != 2){
+            value = 0;
+        }else{
+            if(isDiceToken(_diceToken)){
+                address _dice = diceToken2Dice[_diceToken];
+                IDice dice = IDice(_dice);
+                value = dice.canWithdrawAmount(_amount);
+            }else{
+                value = 0;
+            }
+        }
+    }
+    
 
     function getAverageBlockTime() public view returns (uint256) {
         return (1000 * block.timestamp - blockInfo.timestamp).div(block.number - blockInfo.height);
@@ -203,4 +240,15 @@ contract MiningOracle is Ownable, IMiningOracle {
         require(_index <= getRouterTokenLength() - 1, 'Oracle: index out of bounds');
         return EnumerableSet.at(_routerTokens, _index);
     }
+
+    function addDiceToken(address _diceToken, address _dice) public onlyOwner returns (bool) {
+        require(_diceToken != address(0) && _dice != address(0) , 'Oracle: address is zero');
+        diceToken2Dice[_diceToken] = _dice;
+        return EnumerableSet.add(_diceTokens, _diceToken);
+    }
+
+    function isDiceToken(address _token) public view returns (bool) {
+        return EnumerableSet.contains(_diceTokens, _token);
+    }
+
 }

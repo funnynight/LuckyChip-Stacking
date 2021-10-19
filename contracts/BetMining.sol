@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
-import "./interfaces/IMiningOracle.sol";
+import "./interfaces/IOracle.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
 
@@ -77,7 +77,7 @@ contract BetMining is Ownable, ReentrancyGuard {
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
     uint256 public totalQuantity = 0;
-    IMiningOracle public oracle;
+    IOracle public oracle;
     // The block number when reward token mining starts.
     uint256 public startBlock;
     uint256 public halvingPeriod = 3952800; // half year
@@ -118,7 +118,7 @@ contract BetMining is Ownable, ReentrancyGuard {
         uint256 _startBlock
     ) public {
         rewardToken = LCToken(_rewardTokenAddr);
-        oracle = IMiningOracle(_oracleAddr);
+        oracle = IOracle(_oracleAddr);
         rewardTokenPerBlock = _rewardTokenPerBlock;
         startBlock = _startBlock;
     }
@@ -357,7 +357,7 @@ contract BetMining is Ownable, ReentrancyGuard {
 
     function setOracle(address _oracleAddr) public onlyOwner {
         require(_oracleAddr != address(0), "BetMining: new oracle is the zero address");
-        oracle = IMiningOracle(_oracleAddr);
+        oracle = IOracle(_oracleAddr);
     }
 
     function getLpTokensLength() public view returns (uint256) {

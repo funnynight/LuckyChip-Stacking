@@ -8,9 +8,9 @@ import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
-import "./interfaces/IMiningOracle.sol";
+import "./interfaces/IOracle.sol";
+import "./interfaces/IMasterChef.sol";
 import "./libraries/SafeBEP20.sol";
-import "./LCToken.sol";
 
 contract LuckyPower is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
@@ -26,6 +26,7 @@ contract LuckyPower is Ownable, ReentrancyGuard {
         uint256 lpQuantity;
         uint256 bankerQuantity;
         uint256 playerQuantity;
+        uint256 referrerQuantity;
         uint256 accQuantity;
     }
 
@@ -35,7 +36,6 @@ contract LuckyPower is Ownable, ReentrancyGuard {
         uint256 rewardDebt;
         uint256 accRewardAmount;
     }
-
 
     // Info of each pool.
     struct BonusInfo {
@@ -52,7 +52,7 @@ contract LuckyPower is Ownable, ReentrancyGuard {
     uint256 private unlocked = 1;
 
     // Lc token
-    LCToken public lcToken;
+    IBEP20 public lcToken;
     // Info of each bonus.
     BonusInfo[] public bonusInfo;
     // token address to its corresponding id
@@ -62,7 +62,7 @@ contract LuckyPower is Ownable, ReentrancyGuard {
     // user pending bonus 
     mapping(uint256 => mapping(address => UserRewardInfo)) public userRewardInfo;
 
-    IMiningOracle public oracle;
+    IOracle public oracle;
 
     function isUpdater(address account) public view returns (bool) {
         return EnumerableSet.contains(_updaters, account);
@@ -98,10 +98,10 @@ contract LuckyPower is Ownable, ReentrancyGuard {
 
     constructor(
         address _lcTokenAddr,
-        address _oracleAddr,
+        address _oracleAddr
     ) public {
-        lcToken = LCToken(_lcTokenAddr);
-        oracle = IMiningOracle(_oracleAddr);
+        lcToken = IBEP20(_lcTokenAddr);
+        oracle = IOracle(_oracleAddr);
     }
 
     // Add a new token to the pool. Can only be called by the owner.
@@ -125,35 +125,24 @@ contract LuckyPower is Ownable, ReentrancyGuard {
     }
 
     // Update reward variables of the given pool to be up-to-date.
-    function updateBonus(address bonusToken, uint256 amount) public onlyUpdater nonReentrant{
+    function updateBonus(address bonusToken, uint256 amount) public onlyUpdater lock {
+        uint256 bonusId = tokenIdMap[bonusToken];
+        require(bonusId < bonusInfo.length, "BonusId must be less than bonusInfo length");
 
-        PoolInfo storage pool = poolInfo[_pid];
-        if (block.number <= pool.lastRewardBlock) {
+        BonusInfo storage bonus = bonusInfo[bonusId];
+        if(bonus.token != bonusToken || quantity <= 0){
             return;
         }
 
-        if (pool.quantity == 0) {
-            pool.lastRewardBlock = block.number;
-            return;
-        }
-
-        uint256 blockReward = getRewardTokenBlockReward(pool.lastRewardBlock);
-
-        if (blockReward <= 0) {
-            return;
-        }
-
-        uint256 tokenReward = blockReward.mul(pool.allocPoint).div(totalAllocPoint);
-        pool.lastRewardBlock = block.number;
-
-        pool.accRewardPerShare = pool.accRewardPerShare.add(tokenReward.mul(1e12).div(pool.quantity));
-        pool.allocRewardAmount = pool.allocRewardAmount.add(tokenReward);
-        pool.accRewardAmount = pool.accRewardAmount.add(tokenReward);
-
-        rewardToken.mint(address(this), tokenReward);
+        // TODO update dev quantity
+        bonus.accRewardPerShare = bonus.accRewardPerShare.add(amount.mul(1e12).div(quantity));
+        bonus.allocRewardAmount = bonus.allocRewardAmount.add(amount);
+        bonus.accRewardAmount = bonus.accRewardAmount.add(amount);
+        bonus.lastRewardBlock = block.number;
     }
 
-    function bet(
+    /*
+    function update(
         address account,
         address token,
         uint256 amount
@@ -274,20 +263,11 @@ contract LuckyPower is Ownable, ReentrancyGuard {
             IBEP20(rewardToken).safeTransfer(_to, _amount);
         }
     }
-
-    // Set the number of reward token produced by each block
-    function setRewardTokenPerBlock(uint256 _newPerBlock) public onlyOwner {
-        massUpdatePools();
-        rewardTokenPerBlock = _newPerBlock;
-    }
-
-    function setHalvingPeriod(uint256 _block) public onlyOwner {
-        halvingPeriod = _block;
-    }
+    */
 
     function setOracle(address _oracleAddr) public onlyOwner {
         require(_oracleAddr != address(0), "BetMining: new oracle is the zero address");
-        oracle = IMiningOracle(_oracleAddr);
+        oracle = IOracle(_oracleAddr);
     }
 
     function getLpTokensLength() public view returns (uint256) {
