@@ -25,6 +25,7 @@ contract MasterChef is Ownable, ReentrancyGuard{
     struct UserInfo {
         uint256 amount; // How many LP tokens the user has provided.
         uint256 rewardDebt; // Reward debt. See explanation below.
+        uint256 pendingReward;
         //
         // We do some fancy math here. Basically, any point in time, the amount of LCs
         // entitled to a user but is pending to be distributed is:
@@ -42,21 +43,14 @@ contract MasterChef is Ownable, ReentrancyGuard{
     struct PoolInfo {
         IBEP20 lpToken; // Address of LP token contract.
         uint256 allocPoint; // How many allocation points assigned to this pool. LCs to distribute per block.
-        uint256 bonusPoint; // How many bonus points assigned to this pool.
         uint256 lastRewardBlock; // Last block number that LCs distribution occurs.
         uint256 accLCPerShare; // Accumulated LCs per share, times 1e12. See below.
-    }
-
-    struct BonusInfo {
-        IBEP20 bonusToken;
-		uint256 lastBalance;
-        uint256 lastRewardBlock;
     }
 
     // The LC TOKEN!
     LCToken public LC;
     //Pools, Farms, Dev, Refs percent decimals
-    uint256 public percentDec = 1000000;
+    uint256 public percentDec = 10000;
     //Pools and Farms percent from token per block
     uint256 public stakingPercent;
     //Developers percent from token per block
@@ -87,18 +81,10 @@ contract MasterChef is Ownable, ReentrancyGuard{
     uint256 public BONUS_MULTIPLIER = 1;
     // Info of each pool.
     PoolInfo[] public poolInfo;
-    // Info of each bonus.
-    BonusInfo[] public bonusInfo;
-    // mapping pid to bonus accPerShare.
-    mapping(uint256 => uint256[]) public poolBonusPerShare;
-    // user bonus debt
-    mapping(uint256 => mapping(address => uint256)) public userBonusDebt;
     // Info of each user that stakes LP tokens.
     mapping(uint256 => mapping(address => UserInfo)) public userInfo;
     // Total allocation poitns. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
-    // Total bonus poitns. Must be the sum of all bonus points in all pools.
-    uint256 public totalBonusPoint = 0;
     // The block number when LC mining starts.
     uint256 public startBlock;
 
@@ -170,10 +156,6 @@ contract MasterChef is Ownable, ReentrancyGuard{
         return poolInfo.length;
     }
 
-    function bonusLength() external view returns (uint256) {
-        return bonusInfo.length;
-    }
-
     function withdrawDevFee() public{
         require(lastBlockDevWithdraw < block.number, 'wait for new block');
         uint256 multiplier = getMultiplier(lastBlockDevWithdraw, block.number);
@@ -187,42 +169,21 @@ contract MasterChef is Ownable, ReentrancyGuard{
 
     // Add a new lp to the pool. Can only be called by the owner.
     // XXX DO NOT add the same LP token more than once. Rewards will be messed up if you do.
-    function add(uint256 _allocPoint, uint256 _bonusPoint, IBEP20 _lpToken) public onlyOwner {
+    function add(uint256 _allocPoint, IBEP20 _lpToken) public onlyOwner {
         _checkPoolDuplicate(_lpToken);
         massUpdatePools();
 
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
-        totalBonusPoint = totalBonusPoint.add(_bonusPoint);
-        uint256 pid = poolInfo.length;
         
         poolInfo.push(
             PoolInfo({
                 lpToken: _lpToken,
                 allocPoint: _allocPoint,
-                bonusPoint: _bonusPoint,
                 lastRewardBlock: lastRewardBlock,
                 accLCPerShare: 0
             })
         );
-
-        if(_bonusPoint > 0){
-            for(uint256 i = 0; i < bonusInfo.length; i ++){
-                poolBonusPerShare[pid].push(0);
-            }
-        }
-    }
-
-    function addBonus(IBEP20 _bonusToken) public onlyOwner {
-        _checkBonusDuplicate(_bonusToken);
-        uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
-        bonusInfo.push(BonusInfo({bonusToken: _bonusToken, lastBalance: 0, lastRewardBlock: lastRewardBlock}));
-        for(uint256 i = 0; i < poolInfo.length; i ++){
-            PoolInfo storage pool = poolInfo[i];
-            if (pool.bonusPoint > 0){
-                poolBonusPerShare[i].push(0);
-            }
-        }
     }
 
     function _checkPoolDuplicate(IBEP20 _lpToken) view internal {
@@ -232,20 +193,11 @@ contract MasterChef is Ownable, ReentrancyGuard{
         }
     }
 
-    function _checkBonusDuplicate(IBEP20 _bonusToken) view internal {
-        uint256 length = bonusInfo.length;
-        for(uint256 pid = 0; pid < length; ++pid) {
-            require(bonusInfo[pid].bonusToken != _bonusToken, "bonus existed");
-        }
-    }
-
     // Update the given pool's LC allocation point. Can only be called by the owner.
-    function set(uint256 _pid, uint256 _allocPoint, uint256 _bonusPoint) public onlyOwner validPool(_pid) {
+    function set(uint256 _pid, uint256 _allocPoint) public onlyOwner validPool(_pid) {
         massUpdatePools();
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
-        totalBonusPoint = totalBonusPoint.sub(poolInfo[_pid].bonusPoint).add(_bonusPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
-        poolInfo[_pid].bonusPoint = _bonusPoint;
     }
 
     // Return reward multiplier over the given _from to _to block.
@@ -265,19 +217,6 @@ contract MasterChef is Ownable, ReentrancyGuard{
             accLCPerShare = accLCPerShare.add(LCReward.mul(1e12).div(lpSupply));
         }
         return user.amount.mul(accLCPerShare).div(1e12).sub(user.rewardDebt);
-    }
-
-    // View function to see pending bonus on frontend.
-    function pendingBonus(uint256 _pid, address _user) external view validPool(_pid) returns (uint256[] memory){
-        PoolInfo storage pool = poolInfo[_pid];
-        UserInfo storage user = userInfo[_pid][_user];
-        uint256[] memory values = new uint256[](bonusInfo.length);
-        if (pool.bonusPoint > 0){
-            for(uint256 i = 0; i < bonusInfo.length; i ++) {
-                values[i] = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12).sub(userBonusDebt[i][_user]);
-            }
-        }
-        return values;
     }
 
     // Update reward vairables for all pools. Be careful of gas spending!
@@ -306,55 +245,15 @@ contract MasterChef is Ownable, ReentrancyGuard{
         pool.lastRewardBlock = block.number;
     }
 
-    // Update bonus
-    function updateBonus(uint256 _bonusId) external {
-		require(_bonusId < bonusInfo.length, "bonusId must be less than bonusInfo length");
-        BonusInfo storage bonusPool = bonusInfo[_bonusId];
-		uint256 currentBalance = bonusPool.bonusToken.balanceOf(address(this));
-		if(currentBalance > bonusPool.lastBalance){
-			uint256 amount = currentBalance.sub(bonusPool.lastBalance);
-            for(uint256 i = 0; i < poolInfo.length; i ++){
-                PoolInfo storage pool = poolInfo[i];
-                if(pool.bonusPoint <= 0){
-                    continue;
-                }
-                uint256 lpSupply = pool.lpToken.balanceOf(address(this));
-                if(lpSupply <= 0){
-                    continue;
-                }
-                poolBonusPerShare[i][_bonusId] = poolBonusPerShare[i][_bonusId].add(amount.mul(pool.bonusPoint).div(totalBonusPoint).mul(1e12).div(lpSupply));
-            }
-			bonusPool.lastBalance = currentBalance;
-			bonusPool.lastRewardBlock = block.number;
-		}
-    }
-
     // Pay pending LCs.
-    function payPendingLC(uint256 _pid, address _user) internal validPool(_pid) {
+    function addPendingLC(uint256 _pid, address _user) internal validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256 pending = user.amount.mul(pool.accLCPerShare).div(1e12).sub(user.rewardDebt);
         if (pending > 0) {
-            // send rewards
-            safeLCTransfer(_user, pending);
+            // add rewards
+            user.pendingReward = user.pendingReward.add(pending);
             payReferralCommission(_user, pending);
-        }
-    }
-
-    // Pay pending Bonus.
-    function payPendingBonus(uint256 _pid, address _user) internal validPool(_pid) {
-        PoolInfo storage pool = poolInfo[_pid];
-        UserInfo storage user = userInfo[_pid][_user];
-        if (pool.bonusPoint > 0){
-			require(poolBonusPerShare[_pid].length == bonusInfo.length, "poolBonusPerShare.length must equal to bonusInof length");
-            for(uint256 i = 0; i < bonusInfo.length; i ++) {  
-                uint256 pending = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12).sub(userBonusDebt[i][_user]);
-                if (pending > 0) {
-                    BonusInfo storage bonusPool = bonusInfo[i];
-					bonusPool.lastBalance = bonusPool.lastBalance.sub(pending);
-                    bonusPool.bonusToken.safeTransfer(address(_user), pending);
-                }
-            }
         }
     }
 
@@ -366,20 +265,12 @@ contract MasterChef is Ownable, ReentrancyGuard{
         if(_amount > 0 && address(referral) != address(0) && _referrer != address(0) && _referrer != msg.sender){
             referral.recordReferrer(msg.sender, _referrer);
         }
-        payPendingLC(_pid, msg.sender);
-        if (pool.bonusPoint > 0){
-            payPendingBonus(_pid, msg.sender);
-		}
+        addPendingLC(_pid, msg.sender);
         if(_amount > 0){
             pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
             user.amount = user.amount.add(_amount);
         }
         user.rewardDebt = user.amount.mul(pool.accLCPerShare).div(1e12);
-        if (pool.bonusPoint > 0){
-            for(uint256 i = 0; i < bonusInfo.length; i ++) {  
-				userBonusDebt[i][msg.sender] = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12);
-            }
-        }
 
         emit Deposit(msg.sender, _pid, _amount);
     }
@@ -391,19 +282,14 @@ contract MasterChef is Ownable, ReentrancyGuard{
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
         updatePool(_pid);
-        payPendingLC(_pid, msg.sender);
-        if (pool.bonusPoint > 0){
-            payPendingBonus(_pid, msg.sender);
-		}
+        addPendingLC(_pid, msg.sender);
         if(_amount > 0){
             user.amount = user.amount.sub(_amount);
             pool.lpToken.safeTransfer(address(msg.sender), _amount);
         } 
         user.rewardDebt = user.amount.mul(pool.accLCPerShare).div(1e12);
-        if (pool.bonusPoint > 0){
-            for(uint256 i = 0; i < bonusInfo.length; i ++) {  
-				userBonusDebt[i][msg.sender] = user.amount.mul(poolBonusPerShare[_pid][i]).div(1e12);
-            }
+        if(address(luckyPower) != address(0)){
+            luckyPower.updatePower(msg.sender);
         }
         emit Withdraw(msg.sender, _pid, _amount);
     }
@@ -412,15 +298,18 @@ contract MasterChef is Ownable, ReentrancyGuard{
     function emergencyWithdraw(uint256 _pid) public nonReentrant validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
+        
+        uint256 pending = user.pendingReward;
         pool.lpToken.safeTransfer(address(msg.sender), user.amount);
         emit EmergencyWithdraw(msg.sender, _pid, user.amount);
         user.amount = 0;
         user.rewardDebt = 0;
-		if(pool.bonusPoint > 0){
-            for(uint256 i = 0; i < bonusInfo.length; i ++) {  
-				userBonusDebt[i][msg.sender] = 0;
-            }
-		}
+        user.pendingReward = 0;
+        safeLCTransfer(msg.sender, pending);
+        payReferralCommission(msg.sender, pending);
+        if(address(luckyPower) != address(0)){
+            luckyPower.updatePower(msg.sender);
+        }
     }
 
     // Safe LC transfer function, just in case if rounding error causes pool to not have enough LCs.
@@ -490,7 +379,7 @@ contract MasterChef is Ownable, ReentrancyGuard{
         if (referralCommissionRate > 0) {
             if (address(referral) != address(0)){
                 address referrer = referral.getReferrer(_user);
-                uint256 commissionAmount = _pending.mul(referralCommissionRate).div(10000);
+                uint256 commissionAmount = _pending.mul(referralCommissionRate).div(percentDec);
 
                 if (commissionAmount > 0) {
                     if (referrer != address(0)){
@@ -504,7 +393,7 @@ contract MasterChef is Ownable, ReentrancyGuard{
                     }
                 }
             }else{
-                uint256 commissionAmount = _pending.mul(referralCommissionRate).div(10000);
+                uint256 commissionAmount = _pending.mul(referralCommissionRate).div(percentDec);
                 if (commissionAmount > 0){
                     LC.mint(treasuryaddr, commissionAmount);
                     emit ReferralCommissionPaid(_user, treasuryaddr, commissionAmount);
