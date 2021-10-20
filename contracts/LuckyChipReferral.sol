@@ -2,15 +2,21 @@
 
 pragma solidity 0.6.12;
 
+import "@openzeppelin/contracts/utils/EnumerableSet.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/ILuckyChipReferral.sol";
 import "./libraries/SafeBEP20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract LuckyChipReferral is ILuckyChipReferral, Ownable {
+    using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
+    using EnumerableSet for EnumerableSet.AddressSet;
+   
+    EnumerableSet.AddressSet private _operators; 
+    IBEP20 public lcToken;
 
-    mapping(address => bool) public operators;
     mapping(address => address) public referrers; // user address => referrer address
     mapping(address => uint256) public referralsCount; // referrer address => referrals count
     mapping(address => uint256) public totalReferralCommissions; // referrer address => total referral commissions
@@ -18,6 +24,27 @@ contract LuckyChipReferral is ILuckyChipReferral, Ownable {
     event ReferralRecorded(address indexed user, address indexed referrer);
     event ReferralCommissionRecorded(address indexed referrer, uint256 commission);
     event OperatorUpdated(address indexed operator, bool indexed status);
+
+    function isOperator(address account) public view returns (bool) {
+        return EnumerableSet.contains(_operators, account);
+    }
+
+    // modifier for operator
+    modifier onlyOperator() {
+        require(isOperator(msg.sender), "caller is not a operator");
+        _;
+    }
+
+    function addBetTable(address _addBetTable) public onlyOwner returns (bool) {
+        require(_addBetTable != address(0), "Token: _addBetTable is the zero address");
+        return EnumerableSet.add(_betTables, _addBetTable);
+    }
+
+    function delBetTable(address _delBetTable) public onlyOwner returns (bool) {
+        require(_delBetTable != address(0), "Token: _delBetTable is the zero address");
+        return EnumerableSet.remove(_betTables, _delBetTable);
+    }
+
 
     modifier onlyOperator {
         require(operators[msg.sender], "Operator: caller is not the operator");
