@@ -322,7 +322,7 @@ contract BetMining is Ownable, ReentrancyGuard {
             user.quantity = 0;
             user.rewardDebt = 0;
             user.pendingReward = 0;
-            allPendingRewards = allPendingRewards.add(pendingRewards(i, player));
+            allPendingRewards = allPendingRewards.add(pendingAmount);
         }
         
         if(allPendingRewards > 0){
@@ -335,6 +335,15 @@ contract BetMining is Ownable, ReentrancyGuard {
         }
     }
 
+    function getPower(address user) public view returns (uint256){
+        uint256 allPendingRewards = 0;
+        for (uint256 i = 0; i < poolInfo.length; i++) {
+            uint256 pendingAmount = pendingRewards(i, user);
+            allPendingRewards = allPendingRewards.add(pendingAmount);
+        }
+        return allPendingRewards;
+    }
+
     function emergencyWithdraw(uint256 _pid) public validPool(_pid) nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -343,13 +352,16 @@ contract BetMining is Ownable, ReentrancyGuard {
         pool.quantity = pool.quantity.sub(user.quantity);
         pool.allocRewardAmount = pool.allocRewardAmount.sub(user.pendingReward);
         user.accRewardAmount = user.accRewardAmount.add(user.pendingReward);
-        payReferralCommission(msg.sender, pendingReward);
+        
         user.quantity = 0;
         user.rewardDebt = 0;
         user.pendingReward = 0;
 
         safeRewardTokenTransfer(msg.sender, pendingReward);
-
+        payReferralCommission(msg.sender, pendingReward);
+        if(address(luckyPower) != address(0)){
+            luckyPower.updatePower(msg.sender);
+        }
         emit EmergencyWithdraw(msg.sender, _pid, user.quantity);
     }
 
