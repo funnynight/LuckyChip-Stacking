@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IReferral.sol";
+import "./interfaces/ILuckyPower.sol";
 import "./interfaces/IMasterChef.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
@@ -104,6 +105,8 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
     // LuckyChip referral contract address.
     IReferral public referral;
+    // LuckyPower contract address.
+    ILuckyPower public luckyPower;
     // Referral commission rate in basis points.
     uint16 public referralCommissionRate = 100;
     // Max referral commission rate: 10%.
@@ -116,6 +119,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     event UpdateLcPerBlock(uint256 lcPerBlock);
     event SetReferralCommissionRate(uint256 commissionRate);
     event SetLcReferral(address _lcReferral);
+    event SetLuckyPower(address _luckyPower);
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
@@ -477,6 +481,12 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         emit SetLcReferral(_lcReferral);
     }
 
+    function setLuckyPower(address _luckyPower) public onlyOwner {
+        require(_luckyPower != address(0), "Zero");
+        luckyPower = ILuckyPower(_luckyPower);
+        emit SetLuckyPower(_luckyPower);
+    }
+
     // Pay referral commission to the referrer who referred this user.
     function payReferralCommission(address _user, uint256 _pending) internal {
         if (referralCommissionRate > 0) {
@@ -486,11 +496,11 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
                 if (commissionAmount > 0) {
                     if (referrer != address(0)){
-                        LC.mint(referrer, commissionAmount);
+                        LC.mint(address(referral), commissionAmount);
                         referral.recordLpCommission(referrer, commissionAmount);
                         emit ReferralCommissionPaid(_user, referrer, commissionAmount);
                     }else{
-                        LC.mint(treasuryaddr, commissionAmount);
+                        LC.mint(address(referral), commissionAmount);
                         referral.recordLpCommission(treasuryaddr, commissionAmount);
                         emit ReferralCommissionPaid(_user, treasuryaddr, commissionAmount);
                     }
