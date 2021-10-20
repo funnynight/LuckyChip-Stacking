@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
-import "./interfaces/ILuckyChipReferral.sol";
+import "./interfaces/IReferral.sol";
 import "./interfaces/IMasterChef.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
@@ -103,7 +103,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     uint256 public startBlock;
 
     // LuckyChip referral contract address.
-    ILuckyChipReferral public luckychipReferral;
+    IReferral public referral;
     // Referral commission rate in basis points.
     uint16 public referralCommissionRate = 100;
     // Max referral commission rate: 10%.
@@ -361,8 +361,8 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         updatePool(_pid);
-        if(_amount > 0 && address(luckychipReferral) != address(0) && _referrer != address(0) && _referrer != msg.sender){
-            luckychipReferral.recordReferral(msg.sender, _referrer);
+        if(_amount > 0 && address(referral) != address(0) && _referrer != address(0) && _referrer != msg.sender){
+            referral.recordReferrer(msg.sender, _referrer);
         }
         payPendingLC(_pid, msg.sender);
         if (pool.bonusPoint > 0){
@@ -473,25 +473,25 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
 
     function setReferral(address _lcReferral) public onlyOwner {
         require(_lcReferral != address(0), "Zero");
-        luckychipReferral = ILuckyChipReferral(_lcReferral);
+        referral = IReferral(_lcReferral);
         emit SetLcReferral(_lcReferral);
     }
 
     // Pay referral commission to the referrer who referred this user.
     function payReferralCommission(address _user, uint256 _pending) internal {
         if (referralCommissionRate > 0) {
-            if (address(luckychipReferral) != address(0)){
-                address referrer = luckychipReferral.getReferrer(_user);
+            if (address(referral) != address(0)){
+                address referrer = referral.getReferrer(_user);
                 uint256 commissionAmount = _pending.mul(referralCommissionRate).div(10000);
 
                 if (commissionAmount > 0) {
                     if (referrer != address(0)){
                         LC.mint(referrer, commissionAmount);
-                        luckychipReferral.recordReferralCommission(referrer, commissionAmount);
+                        referral.recordLpCommission(referrer, commissionAmount);
                         emit ReferralCommissionPaid(_user, referrer, commissionAmount);
                     }else{
                         LC.mint(treasuryaddr, commissionAmount);
-                        luckychipReferral.recordReferralCommission(treasuryaddr, commissionAmount);
+                        referral.recordLpCommission(treasuryaddr, commissionAmount);
                         emit ReferralCommissionPaid(_user, treasuryaddr, commissionAmount);
                     }
                 }

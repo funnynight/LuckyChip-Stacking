@@ -5,25 +5,43 @@ pragma solidity 0.6.12;
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
-import "./interfaces/ILuckyChipReferral.sol";
+import "./interfaces/IReferral.sol";
+import "./interfaces/ILuckyPower.sol";
 import "./libraries/SafeBEP20.sol";
 
-contract LuckyChipReferral is ILuckyChipReferral, Ownable {
+contract Referral is IReferral, Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
     using EnumerableSet for EnumerableSet.AddressSet;
    
     EnumerableSet.AddressSet private _operators; 
     IBEP20 public lcToken;
+    ILuckyPower public luckyPower;
+
+    struct ReferrerInfo{
+        uint256 lpCommission;
+        uint256 bankerCommission;
+        uint256 playerCommission;
+        uint256 unclaimed;
+    }
 
     mapping(address => address) public referrers; // user address => referrer address
     mapping(address => uint256) public referralsCount; // referrer address => referrals count
-    mapping(address => uint256) public totalReferralCommissions; // referrer address => total referral commissions
+    mapping(address => ReferrerInfo) public referrerInfo; // referrer address => Referrer Info
 
-    event ReferralRecorded(address indexed user, address indexed referrer);
-    event ReferralCommissionRecorded(address indexed referrer, uint256 commission);
-    event OperatorUpdated(address indexed operator, bool indexed status);
+    event ReferrerRecorded(address indexed user, address indexed referrer);
+    event LpCommissionRecorded(address indexed referrer, uint256 commission);
+    event BankerCommissionRecorded(address indexed referrer, uint256 commission);
+    event PlayerCommissionRecorded(address indexed referrer, uint256 commission);
+    event Claim(address indexed referrer, uint256 amount);
+    event SetLuckyPower(address indexed _luckyPower);
+
+
+    constructor(address _lcTokenAddr) public {
+        lcToken = IBEP20(_lcTokenAddr);
+    }
 
     function isOperator(address account) public view returns (bool) {
         return EnumerableSet.contains(_operators, account);
@@ -35,38 +53,55 @@ contract LuckyChipReferral is ILuckyChipReferral, Ownable {
         _;
     }
 
-    function addBetTable(address _addBetTable) public onlyOwner returns (bool) {
-        require(_addBetTable != address(0), "Token: _addBetTable is the zero address");
-        return EnumerableSet.add(_betTables, _addBetTable);
+    function addOperator(address _addOperator) public onlyOwner returns (bool) {
+        require(_addOperator != address(0), "Token: _addOperator is the zero address");
+        return EnumerableSet.add(_operators, _addOperator);
     }
 
-    function delBetTable(address _delBetTable) public onlyOwner returns (bool) {
-        require(_delBetTable != address(0), "Token: _delBetTable is the zero address");
-        return EnumerableSet.remove(_betTables, _delBetTable);
+    function delOperator(address _delOperator) public onlyOwner returns (bool) {
+        require(_delOperator != address(0), "Token: _delOperator is the zero address");
+        return EnumerableSet.remove(_operators, _delOperator);
     }
 
-
-    modifier onlyOperator {
-        require(operators[msg.sender], "Operator: caller is not the operator");
-        _;
-    }
-
-    function recordReferral(address _user, address _referrer) public override onlyOperator {
+    function recordReferrer(address _user, address _referrer) public override onlyOperator {
         if (_user != address(0)
             && _referrer != address(0)
             && _user != _referrer
             && referrers[_user] == address(0)
         ) {
             referrers[_user] = _referrer;
-            referralsCount[_referrer] += 1;
-            emit ReferralRecorded(_user, _referrer);
+            referralsCount[_referrer] = referralsCount[_referrer].add(1);
+            emit ReferrerRecorded(_user, _referrer);
         }
     }
 
-    function recordReferralCommission(address _referrer, uint256 _commission) public override onlyOperator {
+    function recordLpCommission(address _referrer, uint256 _commission) public override onlyOperator {
         if (_referrer != address(0) && _commission > 0) {
-            totalReferralCommissions[_referrer] += _commission;
-            emit ReferralCommissionRecorded(_referrer, _commission);
+            ReferrerInfo storage info = referrerInfo[_referrer];
+            info.lpCommission = info.lpCommission.add(_commission);
+            info.unclaimed = info.unclaimed.add(_commission);
+
+            emit LpCommissionRecorded(_referrer, _commission);
+        }
+    }
+
+    function recordBankerCommission(address _referrer, uint256 _commission) public override onlyOperator {
+        if (_referrer != address(0) && _commission > 0) {
+            ReferrerInfo storage info = referrerInfo[_referrer];
+            info.bankerCommission = info.bankerCommission.add(_commission);
+            info.unclaimed = info.unclaimed.add(_commission);
+            
+            emit BankerCommissionRecorded(_referrer, _commission);
+        }
+    }
+
+    function recordPlayerCommission(address _referrer, uint256 _commission) public override onlyOperator {
+        if (_referrer != address(0) && _commission > 0) {
+            ReferrerInfo storage info = referrerInfo[_referrer];
+            info.playerCommission = info.playerCommission.add(_commission);
+            info.unclaimed = info.unclaimed.add(_commission);
+            
+            emit PlayerCommissionRecorded(_referrer, _commission);
         }
     }
 
@@ -75,14 +110,30 @@ contract LuckyChipReferral is ILuckyChipReferral, Ownable {
         return referrers[_user];
     }
 
-    // Update the status of the operator
-    function updateOperator(address _operator, bool _status) external onlyOwner {
-        operators[_operator] = _status;
-        emit OperatorUpdated(_operator, _status);
+    function getReferralCommission(address _referrer) public override view returns(uint256, uint256, uint256){
+        return (referrerInfo[_referrer].lpCommission, referrerInfo[_referrer].bankerCommission, referrerInfo[_referrer].playerCommission);
     }
 
-    // Owner can drain tokens that are sent here by mistake
-    function drainBEP20Token(IBEP20 _token, uint256 _amount, address _to) external onlyOwner {
-        _token.safeTransfer(_to, _amount);
+    function getPower(address _referrer) public override view returns (uint256){
+        return referrerInfo[_referrer].unclaimed;
+    }
+
+    function claim() public override nonReentrant {
+        address referrer = msg.sender;
+        ReferrerInfo storage info = referrerInfo[referrer];
+        if(info.unclaimed > 0){
+            uint256 tmpAmount = info.unclaimed;
+            info.unclaimed = 0;
+            lcToken.safeTransfer(referrer, tmpAmount);
+            if(address(luckyPower) != address(0)){
+                luckyPower.updatePower(referrer);
+            }
+            emit Claim(referrer, tmpAmount);
+        }
+    }
+
+    function setLuckyPower(address powerAddr) public onlyOwner {
+        luckyPower = ILuckyPower(powerAddr);
+        emit SetLuckyPower(powerAddr);
     }
 }
