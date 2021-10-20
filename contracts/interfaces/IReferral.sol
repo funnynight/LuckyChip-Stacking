@@ -42,5 +42,4 @@ interface IReferral {
      * @dev claim all LC.
      */
     function claim() external;
-
 }

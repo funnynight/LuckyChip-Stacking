@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IOracle.sol";
+import "./interfaces/IReferral.sol";
+import "./interfaces/ILuckyPower.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
 
@@ -68,6 +70,8 @@ contract BetMining is Ownable, ReentrancyGuard {
     LCToken public rewardToken;
     // reward tokens created per block.
     uint256 public rewardTokenPerBlock;
+    // Bonus muliplier for early players.
+    uint256 public BONUS_MULTIPLIER = 1;
     // Info of each pool.
     PoolInfo[] public poolInfo;
     // Info of each user that stakes LP tokens.
@@ -76,12 +80,19 @@ contract BetMining is Ownable, ReentrancyGuard {
     mapping(address => uint256) public tokenOfPid;
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
+
     uint256 public totalQuantity = 0;
-    IOracle public oracle;
     // The block number when reward token mining starts.
     uint256 public startBlock;
-    uint256 public halvingPeriod = 3952800; // half year
-
+    // Treasury fund.
+    address public defaultReferrer;
+    // Referral commission rate in basis points.
+    uint256 public referralCommissionRate = 500;
+    
+    IOracle public oracle;
+    IReferral public referral;
+    ILuckyPower public luckyPower;
+    
     modifier validPool(uint256 _pid){
         require(_pid < poolInfo.length, 'pool not exist');
         _;
@@ -91,7 +102,7 @@ contract BetMining is Ownable, ReentrancyGuard {
         return EnumerableSet.contains(_betTables, account);
     }
 
-    // modifier for mint function
+    // modifier for bet table
     modifier onlyBetTable() {
         require(isBetTable(msg.sender), "caller is not a bet table");
         _;
@@ -109,47 +120,22 @@ contract BetMining is Ownable, ReentrancyGuard {
 
     event Bet(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event WithdrawAll(address indexed user,  uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event SetReferralCommissionRate(uint256 commissionRate);
 
     constructor(
         address _rewardTokenAddr,
         address _oracleAddr,
+        address _defaultReferrer,
         uint256 _rewardTokenPerBlock,
         uint256 _startBlock
     ) public {
         rewardToken = LCToken(_rewardTokenAddr);
         oracle = IOracle(_oracleAddr);
+        defaultReferrer = _defaultReferrer;
         rewardTokenPerBlock = _rewardTokenPerBlock;
         startBlock = _startBlock;
-    }
-
-    function phase(uint256 blockNumber) public view returns (uint256) {
-        if (halvingPeriod == 0) {
-            return 0;
-        }
-        if (blockNumber > startBlock) {
-            return (blockNumber.sub(startBlock)).div(halvingPeriod);
-        }
-        return 0;
-    }
-
-    function getRewardTokenPerBlock(uint256 blockNumber) public view returns (uint256) {
-        uint256 _phase = phase(blockNumber);
-        return rewardTokenPerBlock.div(2**_phase);
-    }
-
-    function getRewardTokenBlockReward(uint256 _lastRewardBlock) public view returns (uint256) {
-        uint256 blockReward = 0;
-        uint256 lastRewardPhase = phase(_lastRewardBlock);
-        uint256 currentPhase = phase(block.number);
-        while (lastRewardPhase < currentPhase) {
-            lastRewardPhase++;
-            uint256 height = lastRewardPhase.mul(halvingPeriod).add(startBlock);
-            blockReward = blockReward.add((height.sub(_lastRewardBlock)).mul(getRewardTokenPerBlock(height)));
-            _lastRewardBlock = height;
-        }
-        blockReward = blockReward.add((block.number.sub(_lastRewardBlock)).mul(getRewardTokenPerBlock(block.number)));
-        return blockReward;
     }
 
     // Add a new token to the pool. Can only be called by the owner.
@@ -195,6 +181,15 @@ contract BetMining is Ownable, ReentrancyGuard {
         }
     }
 
+    function updateMultiplier(uint256 multiplierNumber) public onlyOwner {
+        BONUS_MULTIPLIER = multiplierNumber;
+    }
+
+    // Return reward multiplier over the given _from to _to block.
+    function getMultiplier(uint256 _from, uint256 _to) public view returns (uint256) {
+         return _to.sub(_from).mul(BONUS_MULTIPLIER);
+    }
+
     // Update reward variables of the given pool to be up-to-date.
     function updatePool(uint256 _pid) public validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
@@ -207,13 +202,8 @@ contract BetMining is Ownable, ReentrancyGuard {
             return;
         }
 
-        uint256 blockReward = getRewardTokenBlockReward(pool.lastRewardBlock);
-
-        if (blockReward <= 0) {
-            return;
-        }
-
-        uint256 tokenReward = blockReward.mul(pool.allocPoint).div(totalAllocPoint);
+        uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
+        uint256 tokenReward = multiplier.mul(rewardTokenPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
         pool.lastRewardBlock = block.number;
 
         pool.accRewardPerShare = pool.accRewardPerShare.add(tokenReward.mul(1e12).div(pool.quantity));
@@ -257,17 +247,20 @@ contract BetMining is Ownable, ReentrancyGuard {
             uint256 pendingReward = user.quantity.mul(pool.accRewardPerShare).div(1e12).sub(user.rewardDebt);
             if (pendingReward > 0) {
                 user.pendingReward = user.pendingReward.add(pendingReward);
+                payReferralCommission(account, pendingReward);
             }
         }
 
-        if (quantity > 0) {
-            pool.quantity = pool.quantity.add(quantity);
-            pool.accQuantity = pool.accQuantity.add(quantity);
-            totalQuantity = totalQuantity.add(quantity);
-            user.quantity = user.quantity.add(quantity);
-            user.accQuantity = user.accQuantity.add(quantity);
-        }
+        pool.quantity = pool.quantity.add(quantity);
+        pool.accQuantity = pool.accQuantity.add(quantity);
+        totalQuantity = totalQuantity.add(quantity);
+        user.quantity = user.quantity.add(quantity);
+        user.accQuantity = user.accQuantity.add(quantity);
         user.rewardDebt = user.quantity.mul(pool.accRewardPerShare).div(1e12);
+        if(address(luckyPower) != address(0)){
+            luckyPower.updatePower(account);
+        }
+
         emit Bet(account, tokenOfPid[token], quantity);
 
         return true;
@@ -279,18 +272,16 @@ contract BetMining is Ownable, ReentrancyGuard {
         UserInfo storage user = userInfo[_pid][_user];
         uint256 accRewardPerShare = pool.accRewardPerShare;
 
-        if (user.quantity > 0) {
+        if (user.quantity > 0 && pool.quantity > 0) {
             if (block.number > pool.lastRewardBlock) {
-                uint256 blockReward = getRewardTokenBlockReward(pool.lastRewardBlock);
-                uint256 tokenReward = blockReward.mul(pool.allocPoint).div(totalAllocPoint);
+                uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
+                uint256 tokenReward = multiplier.mul(rewardTokenPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
                 accRewardPerShare = accRewardPerShare.add(tokenReward.mul(1e12).div(pool.quantity));
-                return user.pendingReward.add(user.quantity.mul(accRewardPerShare).div(1e12).sub(user.rewardDebt));
             }
-            if (block.number == pool.lastRewardBlock) {
-                return user.pendingReward.add(user.quantity.mul(accRewardPerShare).div(1e12).sub(user.rewardDebt));
-            }
+            return user.pendingReward.add(user.quantity.mul(accRewardPerShare).div(1e12).sub(user.rewardDebt));
+        }else{
+            return 0;
         }
-        return 0;
     }
 
     function withdraw(uint256 _pid) public validPool(_pid) nonReentrant {
@@ -301,20 +292,46 @@ contract BetMining is Ownable, ReentrancyGuard {
         uint256 pendingAmount = pendingRewards(_pid, tx.origin);
 
         if (pendingAmount > 0) {
-            safeRewardTokenTransfer(tx.origin, pendingAmount);
             pool.quantity = pool.quantity.sub(user.quantity);
             pool.allocRewardAmount = pool.allocRewardAmount.sub(pendingAmount);
             user.accRewardAmount = user.accRewardAmount.add(pendingAmount);
             user.quantity = 0;
             user.rewardDebt = 0;
             user.pendingReward = 0;
+            safeRewardTokenTransfer(tx.origin, pendingAmount);
+            payReferralCommission(tx.origin, pendingAmount);
+            if(address(luckyPower) != address(0)){
+               luckyPower.updatePower(tx.origin);
+            }
+            emit Withdraw(tx.origin, _pid, pendingAmount);
         }
-        emit Withdraw(tx.origin, _pid, pendingAmount);
     }
 
-    function harvestAll() public nonReentrant {
+    function withdrawAll() public nonReentrant {
+        address player = address(msg.sender);
+        uint256 allPendingRewards = 0;
         for (uint256 i = 0; i < poolInfo.length; i++) {
-            withdraw(i);
+            //withdraw(i);
+            updatePool(i);
+            PoolInfo storage pool = poolInfo[i];
+            UserInfo storage user = userInfo[i][player];
+            uint256 pendingAmount = pendingRewards(i, player);
+            pool.quantity = pool.quantity.sub(user.quantity);
+            pool.allocRewardAmount = pool.allocRewardAmount.sub(pendingAmount);
+            user.accRewardAmount = user.accRewardAmount.add(pendingAmount);
+            user.quantity = 0;
+            user.rewardDebt = 0;
+            user.pendingReward = 0;
+            allPendingRewards = allPendingRewards.add(pendingRewards(i, player));
+        }
+        
+        if(allPendingRewards > 0){
+            safeRewardTokenTransfer(tx.origin, allPendingRewards);
+            payReferralCommission(tx.origin, allPendingRewards);
+            if(address(luckyPower) != address(0)){
+               luckyPower.updatePower(tx.origin);
+            }
+            emit WithdrawAll(tx.origin, allPendingRewards);
         }
     }
 
@@ -326,6 +343,7 @@ contract BetMining is Ownable, ReentrancyGuard {
         pool.quantity = pool.quantity.sub(user.quantity);
         pool.allocRewardAmount = pool.allocRewardAmount.sub(user.pendingReward);
         user.accRewardAmount = user.accRewardAmount.add(user.pendingReward);
+        payReferralCommission(msg.sender, pendingReward);
         user.quantity = 0;
         user.rewardDebt = 0;
         user.pendingReward = 0;
@@ -345,19 +363,60 @@ contract BetMining is Ownable, ReentrancyGuard {
         }
     }
 
+    // Pay referral commission to the referrer who referred this user.
+    function payReferralCommission(address _user, uint256 _pending) internal {
+        if (referralCommissionRate > 0) {
+            if (address(referral) != address(0)){
+                address referrer = referral.getReferrer(_user);
+                uint256 commissionAmount = _pending.mul(referralCommissionRate).div(10000);
+
+                if (commissionAmount > 0) {
+                    if (referrer != address(0)){
+                        rewardToken.mint(address(referral), commissionAmount);
+                        referral.recordPlayerCommission(referrer, commissionAmount);
+                    }else{
+                        rewardToken.mint(address(referral), commissionAmount);
+                        referral.recordPlayerCommission(defaultReferrer, commissionAmount);
+                    }
+                }
+            }else{
+                uint256 commissionAmount = _pending.mul(referralCommissionRate).div(10000);
+                if (commissionAmount > 0){
+                    rewardToken.mint(defaultReferrer, commissionAmount);
+                }
+            }
+        }
+    }
+
     // Set the number of reward token produced by each block
     function setRewardTokenPerBlock(uint256 _newPerBlock) public onlyOwner {
         massUpdatePools();
         rewardTokenPerBlock = _newPerBlock;
     }
 
-    function setHalvingPeriod(uint256 _block) public onlyOwner {
-        halvingPeriod = _block;
-    }
-
     function setOracle(address _oracleAddr) public onlyOwner {
         require(_oracleAddr != address(0), "BetMining: new oracle is the zero address");
         oracle = IOracle(_oracleAddr);
+    }
+
+    function setReferral(address _referralAddr) public onlyOwner {
+        require(_referralAddr != address(0), "BetMining: new referral is the zero address");
+        referral = IReferral(_referralAddr);
+    }
+
+    function setReferrerAddr(address _defaultAddr) public onlyOwner {
+        require(_defaultAddr != address(0), "BetMining: new default referrer is the zero address");
+        defaultReferrer = _defaultAddr;
+    }
+
+    // Update referral commission rate by the owner
+    function setReferralCommissionRate(uint256 _referralCommissionRate) public onlyOwner {
+        require(_referralCommissionRate <= 1000, "setReferralCommissionRate: invalid referral commission rate. Maximum 10%");
+        referralCommissionRate = _referralCommissionRate;
+    }
+
+    function setLuckyPower(address powerAddr) public onlyOwner {
+        luckyPower = ILuckyPower(powerAddr);
     }
 
     function getLpTokensLength() public view returns (uint256) {
@@ -441,5 +500,4 @@ contract BetMining is Ownable, ReentrancyGuard {
         }
         return views;
     }
-
 }

@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IReferral.sol";
 import "./interfaces/ILuckyPower.sol";
-import "./interfaces/IMasterChef.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
 
@@ -19,7 +18,7 @@ import "./LCToken.sol";
 // distributed and the community can show to govern itself.
 //
 // Have fun reading it. Hopefully it's bug-free. God bless.
-contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
+contract MasterChef is Ownable, ReentrancyGuard{
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
     // Info of each user.
@@ -124,7 +123,6 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
-    event EmissionRateUpdated(address indexed caller, uint256 previousAmount, uint256 newAmount);
     event ReferralCommissionPaid(address indexed user, address indexed referrer, uint256 commissionAmount);
 
     modifier validPool(uint256 _pid){
@@ -309,7 +307,7 @@ contract MasterChef is Ownable, ReentrancyGuard, IMasterChef {
     }
 
     // Update bonus
-    function updateBonus(uint256 _bonusId) external override {
+    function updateBonus(uint256 _bonusId) external {
 		require(_bonusId < bonusInfo.length, "bonusId must be less than bonusInfo length");
         BonusInfo storage bonusPool = bonusInfo[_bonusId];
 		uint256 currentBalance = bonusPool.bonusToken.balanceOf(address(this));
