@@ -344,7 +344,7 @@ contract BetMining is IBetMining, Ownable, ReentrancyGuard {
         }
     }
 
-    function getPending(address user) public override view returns (uint256){
+    function getLuckyPower(address user) public override view returns (uint256){
         uint256 allPendingRewards = 0;
         for (uint256 i = 0; i < poolInfo.length; i++) {
             uint256 pendingAmount = pendingRewards(i, user);

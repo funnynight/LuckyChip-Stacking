@@ -114,7 +114,7 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
         return (referrerInfo[_referrer].lpCommission, referrerInfo[_referrer].bankerCommission, referrerInfo[_referrer].playerCommission);
     }
 
-    function getPending(address _referrer) public override view returns (uint256){
+    function getLuckyPower(address _referrer) public override view returns (uint256){
         return referrerInfo[_referrer].pending;
     }
 

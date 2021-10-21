@@ -5,9 +5,11 @@ pragma solidity 0.6.12;
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IReferral.sol";
 import "./interfaces/ILuckyPower.sol";
+import "./interfaces/IMasterChef.sol";
 import "./libraries/SafeBEP20.sol";
 import "./LCToken.sol";
 
@@ -18,9 +20,11 @@ import "./LCToken.sol";
 // distributed and the community can show to govern itself.
 //
 // Have fun reading it. Hopefully it's bug-free. God bless.
-contract MasterChef is Ownable, ReentrancyGuard{
+contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     // Info of each user.
     struct UserInfo {
         uint256 amount; // How many LP tokens the user has provided.
@@ -47,6 +51,9 @@ contract MasterChef is Ownable, ReentrancyGuard{
         uint256 accLCPerShare; // Accumulated LCs per share, times 1e12. See below.
     }
 
+    // 
+    EnumerableSet.AddressSet private _tokenomicAddrs;
+
     // The LC TOKEN!
     LCToken public LC;
     //Pools, Farms, Dev, Refs percent decimals
@@ -59,20 +66,20 @@ contract MasterChef is Ownable, ReentrancyGuard{
     uint256 public dev1Percent;
     //Developers percent from token per block
     uint256 public dev2Percent;
-    //Safu fund percent from token per block
-    uint256 public safuPercent;
-    // devFee reduction ratio, range [0, percentDec]
-    uint256 public devFeeReduction;
+    //treasury fund percent from token per block
+    uint256 public treasuryPercent;
+    //Eco fund percent from token per block
+    uint256 public ecoPercent;
     // Dev0 address.
-    address public dev0addr;
+    address public dev0Addr;
     // Dev1 address.
-    address public dev1addr;
+    address public dev1Addr;
     // Dev2 address.
-    address public dev2addr;
+    address public dev2Addr;
     // Treasury fund.
-    address public treasuryaddr;
-    // Safu fund.
-    address public safuaddr;
+    address public treasuryAddr;
+    // Eco fund.
+    address public ecoAddr;
     // Last block then develeper withdraw dev and ref fee
     uint256 public lastBlockDevWithdraw;
     // LC tokens created per block.
@@ -93,16 +100,17 @@ contract MasterChef is Ownable, ReentrancyGuard{
     // LuckyPower contract address.
     ILuckyPower public luckyPower;
     // Referral commission rate in basis points.
-    uint16 public referralCommissionRate = 100;
+    uint16 public referralCommissionRate = 500;
     // Max referral commission rate: 10%.
     uint16 public constant MAXIMUM_REFERRAL_COMMISSION_RATE = 1000;
 
     event SetDevAddress(address indexed dev0Addr, address indexed dev1Addr, address indexed dev2Addr);
-    event SetSafuAddress(address indexed safuAddr);
+    event SetEcoAddress(address indexed ecoAddr);
     event SetTreasuryAddress(address indexed treasuryAddr);
     event SetDevFeeReduction(uint256 devFeeReduction);
     event UpdateLcPerBlock(uint256 lcPerBlock);
     event SetReferralCommissionRate(uint256 commissionRate);
+    event SetPercent(uint256 stakingPercent, uint256 dev0Percent, uint256 dev1Percent, uint256 dev2Percent, uint256 ecoPercent, uint256 treasuryPercent);
     event SetLcReferral(address _lcReferral);
     event SetLuckyPower(address _luckyPower);
 
@@ -118,34 +126,40 @@ contract MasterChef is Ownable, ReentrancyGuard{
 
     constructor(
         LCToken _LC,
-        address _dev0addr,
-        address _dev1addr,
-        address _dev2addr,
-        address _safuaddr,
-        address _treasuryaddr,
+        address _dev0Addr,
+        address _dev1Addr,
+        address _dev2Addr,
+        address _ecoAddr,
+        address _treasuryAddr,
         uint256 _LCPerBlock,
         uint256 _startBlock,
         uint256 _stakingPercent,
         uint256 _dev0Percent,
         uint256 _dev1Percent,
         uint256 _dev2Percent,
-        uint256 _safuPercent
+        uint256 _ecoPercent,
+        uint256 _treasuryPercent
     ) public {
         LC = _LC;
-        dev0addr = _dev0addr;
-        dev1addr = _dev1addr;
-        dev2addr = _dev2addr;
-        safuaddr = _safuaddr;
-        treasuryaddr = _treasuryaddr;
+        dev0Addr = _dev0Addr;
+        dev1Addr = _dev1Addr;
+        dev2Addr = _dev2Addr;
+        ecoAddr = _ecoAddr;
+        treasuryAddr = _treasuryAddr;
         LCPerBlock = _LCPerBlock;
         startBlock = _startBlock;
         stakingPercent = _stakingPercent;
         dev0Percent = _dev0Percent;
         dev1Percent = _dev1Percent;
         dev2Percent = _dev2Percent;
-        safuPercent = _safuPercent;
+        ecoPercent = _ecoPercent;
+        treasuryPercent = _treasuryPercent;
         lastBlockDevWithdraw = _startBlock;
-        devFeeReduction = percentDec;
+        EnumerableSet.add(_tokenomicAddrs, dev0Addr);
+        EnumerableSet.add(_tokenomicAddrs, dev1Addr);
+        EnumerableSet.add(_tokenomicAddrs, dev2Addr);
+        EnumerableSet.add(_tokenomicAddrs, ecoAddr);
+        EnumerableSet.add(_tokenomicAddrs, treasuryAddr);
     }
 
     function updateMultiplier(uint256 multiplierNumber) public onlyOwner {
@@ -160,10 +174,11 @@ contract MasterChef is Ownable, ReentrancyGuard{
         require(lastBlockDevWithdraw < block.number, 'wait for new block');
         uint256 multiplier = getMultiplier(lastBlockDevWithdraw, block.number);
         uint256 LCReward = multiplier.mul(LCPerBlock);
-        LC.mint(dev0addr, LCReward.mul(dev0Percent).div(percentDec).mul(devFeeReduction).div(percentDec));
-        LC.mint(dev1addr, LCReward.mul(dev1Percent).div(percentDec).mul(devFeeReduction).div(percentDec));
-        LC.mint(dev2addr, LCReward.mul(dev2Percent).div(percentDec).mul(devFeeReduction).div(percentDec));
-        LC.mint(safuaddr, LCReward.mul(safuPercent).div(percentDec).mul(devFeeReduction).div(percentDec));
+        LC.mint(dev0Addr, LCReward.mul(dev0Percent).div(percentDec));
+        LC.mint(dev1Addr, LCReward.mul(dev1Percent).div(percentDec));
+        LC.mint(dev2Addr, LCReward.mul(dev2Percent).div(percentDec));
+        LC.mint(ecoAddr, LCReward.mul(ecoPercent).div(percentDec));
+        LC.mint(treasuryAddr, LCReward.mul(treasuryPercent).div(percentDec));
         lastBlockDevWithdraw = block.number;
     }
 
@@ -186,6 +201,10 @@ contract MasterChef is Ownable, ReentrancyGuard{
         );
     }
 
+    function getPoolLength() public override view returns (uint256){
+        return poolInfo.length;
+    }
+
     function _checkPoolDuplicate(IBEP20 _lpToken) view internal {
         uint256 length = poolInfo.length;
         for(uint256 pid = 0; pid < length; ++pid) {
@@ -206,7 +225,7 @@ contract MasterChef is Ownable, ReentrancyGuard{
     }
 
     // View function to see pending LCs on frontend.
-    function pendingLC(uint256 _pid, address _user) external view validPool(_pid) returns (uint256){
+    function pendingLC(uint256 _pid, address _user) public view validPool(_pid) returns (uint256){
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256 accLCPerShare = pool.accLCPerShare;
@@ -337,33 +356,53 @@ contract MasterChef is Ownable, ReentrancyGuard{
             }
         }
     }
-    
+
+    function getLuckyPower(address user) public override view returns (address[] memory, uint256[] memory, uint256){
+        address[] memory tokens = new address[](poolInfo.length);
+        uint256[] memory amounts = new uint256[](poolInfo.length);
+        uint256 allPending = 0;
+        for(uint256 i = 0; i < poolInfo.length; i ++){
+            tokens[i] = address(poolInfo[i].lpToken);
+            amounts[i] = userInfo[i][user].amount;
+            allPending = allPending.add(pendingLC(i, user));
+        }
+        if(EnumerableSet.contains(_tokenomicAddrs, user)){
+            if(user == dev0Addr){
+                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev0Percent).div(percentDec));
+            }else if(user == dev1Addr){
+                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev1Percent).div(percentDec));
+            }else if(user == dev2Addr){
+                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev2Percent).div(percentDec));
+            }else if(user == ecoAddr){
+                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(ecoPercent).div(percentDec));
+            }else if(user == treasuryAddr){
+                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(treasuryPercent).div(percentDec));
+            }
+        }
+        return (tokens, amounts, allPending);
+    }
+
     // get stack amount
     function getStackAmount(uint256 _pid, address _user) public view validPool(_pid) returns (uint256 amount){ 
         return userInfo[_pid][_user].amount;
     }
 
-    function setDevAddress(address _dev0addr,address _dev1addr,address _dev2addr) public onlyOwner {
-        require(_dev0addr != address(0) && _dev1addr != address(0) && _dev2addr != address(0), "Zero");
-        dev0addr = _dev0addr;
-        dev1addr = _dev1addr;
-        dev2addr = _dev2addr;
-        emit SetDevAddress(dev0addr, dev1addr, dev2addr);
+    function setDevAddress(address _dev0Addr,address _dev1Addr,address _dev2Addr) public onlyOwner {
+        require(_dev0Addr != address(0) && _dev1Addr != address(0) && _dev2Addr != address(0), "Zero");
+        dev0Addr = _dev0Addr;
+        dev1Addr = _dev1Addr;
+        dev2Addr = _dev2Addr;
+        emit SetDevAddress(dev0Addr, dev1Addr, dev2Addr);
     }
-    function setSafuAddress(address _safuaddr) public onlyOwner{
-        require(_safuaddr != address(0), "Zero");
-        safuaddr = _safuaddr;
-        emit SetSafuAddress(safuaddr);
+    function setEcoAddress(address _ecoAddr) public onlyOwner{
+        require(_ecoAddr != address(0), "Zero");
+        ecoAddr = _ecoAddr;
+        emit SetEcoAddress(ecoAddr);
     }
-    function setTreasuryAddress(address _treasuryaddr) public onlyOwner{
-        require(_treasuryaddr != address(0), "Zero");
-        treasuryaddr = _treasuryaddr;
-        emit SetTreasuryAddress(treasuryaddr);
-    }
-    function setDevFeeReduction(uint256 _devFeeReduction) public onlyOwner{
-        require(_devFeeReduction > 0 && _devFeeReduction <= percentDec, "defFeeReduction range");
-        devFeeReduction = _devFeeReduction;
-        emit SetDevFeeReduction(devFeeReduction);
+    function setTreasuryAddress(address _treasuryAddr) public onlyOwner{
+        require(_treasuryAddr != address(0), "Zero");
+        treasuryAddr = _treasuryAddr;
+        emit SetTreasuryAddress(treasuryAddr);
     }
     function updateLcPerBlock(uint256 newAmount) public onlyOwner {
         require(newAmount <= 100 * 1e18, 'Max per block 100 LC');
@@ -376,6 +415,18 @@ contract MasterChef is Ownable, ReentrancyGuard{
         require(_referralCommissionRate <= MAXIMUM_REFERRAL_COMMISSION_RATE, "setReferralCommissionRate: invalid referral commission rate basis points");
         referralCommissionRate = _referralCommissionRate;
         emit SetReferralCommissionRate(referralCommissionRate);
+    }
+
+    function setPercent(uint256 _stakingPercent, uint256 _dev0Percent, uint256 _dev1Percent, uint256 _dev2Percent, uint256 _ecoPercent, uint256 _treasuryPercent) public onlyOwner{
+        uint256 devPercent = _dev0Percent.add(_dev1Percent).add(_dev2Percent);
+        require(_stakingPercent.add(devPercent).add(_ecoPercent).add(_treasuryPercent) <= percentDec, "Percent Sum");
+        stakingPercent = _stakingPercent;
+        dev0Percent = _dev0Percent;
+        dev1Percent = _dev1Percent;
+        dev2Percent = _dev2Percent;
+        ecoPercent = _ecoPercent;
+        treasuryPercent = _treasuryPercent;
+        emit SetPercent(stakingPercent, dev0Percent, dev1Percent, dev2Percent, ecoPercent, treasuryPercent);
     }
 
     function setReferral(address _lcReferral) public onlyOwner {
@@ -404,15 +455,15 @@ contract MasterChef is Ownable, ReentrancyGuard{
                         emit ReferralCommissionPaid(_user, referrer, commissionAmount);
                     }else{
                         LC.mint(address(referral), commissionAmount);
-                        referral.recordLpCommission(treasuryaddr, commissionAmount);
-                        emit ReferralCommissionPaid(_user, treasuryaddr, commissionAmount);
+                        referral.recordLpCommission(treasuryAddr, commissionAmount);
+                        emit ReferralCommissionPaid(_user, treasuryAddr, commissionAmount);
                     }
                 }
             }else{
                 uint256 commissionAmount = _pending.mul(referralCommissionRate).div(percentDec);
                 if (commissionAmount > 0){
-                    LC.mint(treasuryaddr, commissionAmount);
-                    emit ReferralCommissionPaid(_user, treasuryaddr, commissionAmount);
+                    LC.mint(treasuryAddr, commissionAmount);
+                    emit ReferralCommissionPaid(_user, treasuryAddr, commissionAmount);
                 }
             }
         }
