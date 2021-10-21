@@ -216,7 +216,7 @@ contract MasterChef is Ownable, ReentrancyGuard{
             uint256 LCReward = multiplier.mul(LCPerBlock).mul(pool.allocPoint).div(totalAllocPoint).mul(stakingPercent).div(percentDec);
             accLCPerShare = accLCPerShare.add(LCReward.mul(1e12).div(lpSupply));
         }
-        return user.amount.mul(accLCPerShare).div(1e12).sub(user.rewardDebt);
+        return user.pendingReward.add(user.amount.mul(accLCPerShare).div(1e12).sub(user.rewardDebt));
     }
 
     // Update reward vairables for all pools. Be careful of gas spending!
@@ -245,7 +245,7 @@ contract MasterChef is Ownable, ReentrancyGuard{
         pool.lastRewardBlock = block.number;
     }
 
-    // Pay pending LCs.
+    // add pending LCs.
     function addPendingLC(uint256 _pid, address _user) internal validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
@@ -271,7 +271,9 @@ contract MasterChef is Ownable, ReentrancyGuard{
             user.amount = user.amount.add(_amount);
         }
         user.rewardDebt = user.amount.mul(pool.accLCPerShare).div(1e12);
-
+        if(address(luckyPower) != address(0)){
+            luckyPower.updatePower(msg.sender);
+        }
         emit Deposit(msg.sender, _pid, _amount);
     }
 
@@ -299,14 +301,11 @@ contract MasterChef is Ownable, ReentrancyGuard{
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         
-        uint256 pending = user.pendingReward;
         pool.lpToken.safeTransfer(address(msg.sender), user.amount);
         emit EmergencyWithdraw(msg.sender, _pid, user.amount);
         user.amount = 0;
         user.rewardDebt = 0;
         user.pendingReward = 0;
-        safeLCTransfer(msg.sender, pending);
-        payReferralCommission(msg.sender, pending);
         if(address(luckyPower) != address(0)){
             luckyPower.updatePower(msg.sender);
         }
@@ -319,6 +318,23 @@ contract MasterChef is Ownable, ReentrancyGuard{
             LC.transfer(_to, LCBal);
         } else {
             LC.transfer(_to, _amount);
+        }
+    }
+
+    function claim() public nonReentrant {
+        uint256 allPending = 0;
+        for(uint256 i = 0; i < poolInfo.length; i ++){
+            updatePool(i);
+            addPendingLC(i, msg.sender);
+            UserInfo storage user = userInfo[i][msg.sender];
+            allPending = allPending.add(user.pendingReward);
+            user.pendingReward = 0;
+        }
+        if(allPending > 0){
+            safeLCTransfer(msg.sender, allPending);
+            if(address(luckyPower) != address(0)){
+                luckyPower.updatePower(msg.sender);
+            }
         }
     }
     

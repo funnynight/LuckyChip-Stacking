@@ -24,7 +24,7 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
         uint256 lpCommission;
         uint256 bankerCommission;
         uint256 playerCommission;
-        uint256 unclaimed;
+        uint256 pending;
     }
 
     mapping(address => address) public referrers; // user address => referrer address
@@ -79,7 +79,7 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
         if (_referrer != address(0) && _commission > 0) {
             ReferrerInfo storage info = referrerInfo[_referrer];
             info.lpCommission = info.lpCommission.add(_commission);
-            info.unclaimed = info.unclaimed.add(_commission);
+            info.pending = info.pending.add(_commission);
 
             emit LpCommissionRecorded(_referrer, _commission);
         }
@@ -89,7 +89,7 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
         if (_referrer != address(0) && _commission > 0) {
             ReferrerInfo storage info = referrerInfo[_referrer];
             info.bankerCommission = info.bankerCommission.add(_commission);
-            info.unclaimed = info.unclaimed.add(_commission);
+            info.pending = info.pending.add(_commission);
             
             emit BankerCommissionRecorded(_referrer, _commission);
         }
@@ -99,7 +99,7 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
         if (_referrer != address(0) && _commission > 0) {
             ReferrerInfo storage info = referrerInfo[_referrer];
             info.playerCommission = info.playerCommission.add(_commission);
-            info.unclaimed = info.unclaimed.add(_commission);
+            info.pending = info.pending.add(_commission);
             
             emit PlayerCommissionRecorded(_referrer, _commission);
         }
@@ -114,16 +114,16 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
         return (referrerInfo[_referrer].lpCommission, referrerInfo[_referrer].bankerCommission, referrerInfo[_referrer].playerCommission);
     }
 
-    function getPower(address _referrer) public override view returns (uint256){
-        return referrerInfo[_referrer].unclaimed;
+    function getPending(address _referrer) public override view returns (uint256){
+        return referrerInfo[_referrer].pending;
     }
 
     function claim() public override nonReentrant {
         address referrer = msg.sender;
         ReferrerInfo storage info = referrerInfo[referrer];
-        if(info.unclaimed > 0){
-            uint256 tmpAmount = info.unclaimed;
-            info.unclaimed = 0;
+        if(info.pending > 0){
+            uint256 tmpAmount = info.pending;
+            info.pending = 0;
             lcToken.safeTransfer(referrer, tmpAmount);
             if(address(luckyPower) != address(0)){
                 luckyPower.updatePower(referrer);

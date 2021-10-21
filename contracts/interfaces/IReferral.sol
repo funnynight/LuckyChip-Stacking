@@ -36,7 +36,7 @@ interface IReferral {
     /**
      * @dev Get the lucky power of user.
      */
-    function getPower(address user) external view returns (uint256);
+    function getPending(address user) external view returns (uint256);
 
     /**
      * @dev claim all LC.
