@@ -46,6 +46,12 @@ contract LCToken is LCBEP20('LuckyChip', 'LC') {
         _moveDelegates(address(0), _delegates[_to], _amount);
     }
 
+    // @notice burn `_amount` token from `_from`.
+    function burn(address _from, uint256 _amount) public onlyMinter {
+        _burn(_from, _amount);
+        _moveDelegates(_delegates[_from], address(0), _amount);
+    }
+
     // Copied and modified from YAM code:
     // https://github.com/yam-finance/yam-protocol/blob/master/contracts/token/YAMGovernanceStorage.sol
     // https://github.com/yam-finance/yam-protocol/blob/master/contracts/token/YAMGovernance.sol
