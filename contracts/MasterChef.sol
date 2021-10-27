@@ -435,10 +435,10 @@ contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
         emit SetLcReferral(_lcReferral);
     }
 
-    function setLuckyPower(address _luckyPower) public onlyOwner {
-        require(_luckyPower != address(0), "Zero");
-        luckyPower = ILuckyPower(_luckyPower);
-        emit SetLuckyPower(_luckyPower);
+    function setLuckyPower(address _luckyPowerAddr) public onlyOwner {
+        require(_luckyPowerAddr != address(0), "Zero");
+        luckyPower = ILuckyPower(_luckyPowerAddr);
+        emit SetLuckyPower(_luckyPowerAddr);
     }
 
     // Pay referral commission to the referrer who referred this user.

@@ -9,10 +9,14 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IOracle.sol";
+import "./interfaces/ILuckyPower.sol";
 import "./interfaces/IMasterChef.sol";
+import "./interfaces/IBetMining.sol";
+import "./interfaces/IReferral.sol";
+import "./interfaces/ILottery.sol";
 import "./libraries/SafeBEP20.sol";
 
-contract LuckyPower is Ownable, ReentrancyGuard {
+contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
 
@@ -63,6 +67,10 @@ contract LuckyPower is Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(address => UserRewardInfo)) public userRewardInfo;
 
     IOracle public oracle;
+    IMasterChef public masterChef;
+    IBetMining public betMining;
+    IReferral public referral;
+    ILottery public lottery;
 
     function isUpdater(address account) public view returns (bool) {
         return EnumerableSet.contains(_updaters, account);
@@ -98,10 +106,18 @@ contract LuckyPower is Ownable, ReentrancyGuard {
 
     constructor(
         address _lcTokenAddr,
-        address _oracleAddr
+        address _oracleAddr,
+        address _masterChefAddr,
+        address _betMiningAddr,
+        address _referralAddr,
+        address _lotteryAddr
     ) public {
         lcToken = IBEP20(_lcTokenAddr);
         oracle = IOracle(_oracleAddr);
+        masterChef = IMasterChef(_masterChefAddr);
+        betMining = IBetMining(_betMiningAddr);
+        referral = IReferral(_referralAddr);
+        lottery = ILottery(_referralAddr);
     }
 
     // Add a new token to the pool. Can only be called by the owner.
@@ -125,7 +141,7 @@ contract LuckyPower is Ownable, ReentrancyGuard {
     }
 
     // Update reward variables of the given pool to be up-to-date.
-    function updateBonus(address bonusToken, uint256 amount) public onlyUpdater lock {
+    function updateBonus(address bonusToken, uint256 amount) public override onlyUpdater lock {
         uint256 bonusId = tokenIdMap[bonusToken];
         require(bonusId < bonusInfo.length, "BonusId must be less than bonusInfo length");
 
@@ -141,14 +157,8 @@ contract LuckyPower is Ownable, ReentrancyGuard {
         bonus.lastRewardBlock = block.number;
     }
 
-    /*
-    function update(
-        address account,
-        address token,
-        uint256 amount
-    ) public onlyUpdater returns (bool) {
+    function updatePower(address account) public onlyUpdater returns (bool) {
         require(account != address(0), "BetMining: bet account is zero address");
-        require(token != address(0), "BetMining: token is zero address");
 
         if (getBonusLength() <= 0) {
             return false;
@@ -192,6 +202,11 @@ contract LuckyPower is Ownable, ReentrancyGuard {
         return true;
     }
 
+    function getPower(address account) public view returns (uint256) {
+        return userInfo[account].quantity;
+    }
+
+    /*
     function pendingRewards(uint256 _pid, address _user) public view validPool(_pid) returns (uint256) {
 
         PoolInfo storage pool = poolInfo[_pid];
@@ -212,7 +227,7 @@ contract LuckyPower is Ownable, ReentrancyGuard {
         return 0;
     }
 
-    function withdraw(uint256 _pid) public validPool(_pid) {
+    function withdraw() public{
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][tx.origin];
 
@@ -231,13 +246,8 @@ contract LuckyPower is Ownable, ReentrancyGuard {
         emit Withdraw(tx.origin, _pid, pendingAmount);
     }
 
-    function harvestAll() public {
-        for (uint256 i = 0; i < poolInfo.length; i++) {
-            withdraw(i);
-        }
-    }
-
-    function emergencyWithdraw(uint256 _pid) public validPool(_pid) {
+    
+    function emergencyWithdraw() public {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
@@ -253,6 +263,7 @@ contract LuckyPower is Ownable, ReentrancyGuard {
 
         emit EmergencyWithdraw(msg.sender, _pid, user.quantity);
     }
+    */
 
     // Safe reward token transfer function, just in case if rounding error causes pool to not have enough reward tokens.
     function safeRewardTokenTransfer(address _to, uint256 _amount) internal {
@@ -263,7 +274,6 @@ contract LuckyPower is Ownable, ReentrancyGuard {
             IBEP20(rewardToken).safeTransfer(_to, _amount);
         }
     }
-    */
 
     function setOracle(address _oracleAddr) public onlyOwner {
         require(_oracleAddr != address(0), "BetMining: new oracle is the zero address");

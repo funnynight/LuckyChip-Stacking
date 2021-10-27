@@ -36,7 +36,7 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
     event BankerCommissionRecorded(address indexed referrer, uint256 commission);
     event PlayerCommissionRecorded(address indexed referrer, uint256 commission);
     event Claim(address indexed referrer, uint256 amount);
-    event SetLuckyPower(address indexed _luckyPower);
+    event SetLuckyPower(address indexed _luckyPowerAddr);
 
 
     constructor(address _lcTokenAddr) public {
@@ -132,8 +132,9 @@ contract Referral is IReferral, Ownable, ReentrancyGuard {
         }
     }
 
-    function setLuckyPower(address powerAddr) public onlyOwner {
-        luckyPower = ILuckyPower(powerAddr);
-        emit SetLuckyPower(powerAddr);
+    function setLuckyPower(address _luckyPowerAddr) public onlyOwner {
+        require(_luckyPowerAddr != address(0), "Zero");
+        luckyPower = ILuckyPower(_luckyPowerAddr);
+        emit SetLuckyPower(_luckyPowerAddr);
     }
 }

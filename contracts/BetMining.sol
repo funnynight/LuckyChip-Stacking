@@ -124,6 +124,7 @@ contract BetMining is IBetMining, Ownable, ReentrancyGuard {
     event WithdrawAll(address indexed user,  uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event SetReferralCommissionRate(uint256 commissionRate);
+    event SetLuckyPower(address indexed _luckyPowerAddr);
 
     constructor(
         address _rewardTokenAddr,
@@ -435,8 +436,10 @@ contract BetMining is IBetMining, Ownable, ReentrancyGuard {
         referralCommissionRate = _referralCommissionRate;
     }
 
-    function setLuckyPower(address powerAddr) public onlyOwner {
-        luckyPower = ILuckyPower(powerAddr);
+    function setLuckyPower(address _luckyPowerAddr) public onlyOwner {
+        require(_luckyPowerAddr != address(0), "Zero");
+        luckyPower = ILuckyPower(_luckyPowerAddr);
+        emit SetLuckyPower(_luckyPowerAddr);
     }
 
     function getLpTokensLength() public view returns (uint256) {
