@@ -31,7 +31,7 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         uint256 bankerQuantity;
         uint256 playerQuantity;
         uint256 referrerQuantity;
-        uint256 accQuantity;
+        uint256 lotteryQuantity;
     }
 
     // Reward info of each user for each bonus
@@ -51,9 +51,6 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     }
 
     uint256 public quantity;
-    uint256 public accQuantity;
-
-    uint256 private unlocked = 1;
 
     // Lc token
     IBEP20 public lcToken;
@@ -82,14 +79,6 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         _;
     }
 
-    // lock modifier
-    modifier lock() {
-        require(unlocked == 1, 'LuckyPower: LOCKED');
-        unlocked = 0;
-        _;
-        unlocked = 1;
-    }
-
     function addUpdater(address _addUpdater) public onlyOwner returns (bool) {
         require(_addUpdater != address(0), "Token: _addUpdater is the zero address");
         return EnumerableSet.add(_updaters, _addUpdater);
@@ -100,9 +89,13 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         return EnumerableSet.remove(_updaters, _delUpdater);
     } 
 
-    event UpdatePower(address indexed user, uint256 lpPower, uint256 bankerPower, uint256 playerPower);
+    event UpdatePower(address indexed user, uint256 quantity);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event SetMasterChef(address indexed _masterChefAddr);
+    event SetBetMining(address indexed _betMiningAddr);
+    event SetReferral(address indexed _referralAddr);
+    event SetLottery(address indexed _lotteryAddr);
 
     constructor(
         address _lcTokenAddr,
@@ -117,7 +110,7 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         masterChef = IMasterChef(_masterChefAddr);
         betMining = IBetMining(_betMiningAddr);
         referral = IReferral(_referralAddr);
-        lottery = ILottery(_referralAddr);
+        lottery = ILottery(_lotteryAddr);
     }
 
     // Add a new token to the pool. Can only be called by the owner.
@@ -141,7 +134,7 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     }
 
     // Update reward variables of the given pool to be up-to-date.
-    function updateBonus(address bonusToken, uint256 amount) public override onlyUpdater lock {
+    function updateBonus(address bonusToken, uint256 amount) public override onlyUpdater {
         uint256 bonusId = tokenIdMap[bonusToken];
         require(bonusId < bonusInfo.length, "BonusId must be less than bonusInfo length");
 
@@ -157,53 +150,73 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         bonus.lastRewardBlock = block.number;
     }
 
-    function updatePower(address account) public onlyUpdater returns (bool) {
+    function getPower(address account) public override view returns (uint256) {
+        return userInfo[account].quantity;
+    }
+
+    function updatePower(address account) public override{
         require(account != address(0), "BetMining: bet account is zero address");
 
-        if (getBonusLength() <= 0) {
-            return false;
-        }
-
-        PoolInfo storage pool = poolInfo[tokenOfPid[token]];
-        // If it does not exist or the allocPoint is 0 then return
-        if (pool.token != token || pool.allocPoint <= 0) {
-            return false;
-        }
-
-        uint256 quantity = oracle.getQuantity(token, amount);
-        if (quantity <= 0) {
-            return false;
-        }
-
-        updatePool(tokenOfPid[token]);
-        if(token != address(rewardToken)){
-            oracle.update(token, address(rewardToken));
-            oracle.updateBlockInfo();
-        }
-
-        UserInfo storage user = userInfo[tokenOfPid[token]][account];
-        if (user.quantity > 0) {
-            uint256 pendingReward = user.quantity.mul(pool.accRewardPerShare).div(1e12).sub(user.rewardDebt);
-            if (pendingReward > 0) {
-                user.pendingReward = user.pendingReward.add(pendingReward);
+        for(uint256 i = 0; i < bonusInfo.length; i ++){
+            BonusInfo storage bonus = bonusInfo[i];
+            if(bonus.token != address(lcToken)){
+                oracle.update(bonus.token, address(lcToken));
+                oracle.updateBlockInfo();
             }
         }
 
-        if (quantity > 0) {
-            pool.quantity = pool.quantity.add(quantity);
-            pool.accQuantity = pool.accQuantity.add(quantity);
-            totalQuantity = totalQuantity.add(quantity);
-            user.quantity = user.quantity.add(quantity);
-            user.accQuantity = user.accQuantity.add(quantity);
+        UserInfo storage user = userInfo[account];
+        if (user.quantity > 0) {
+            for(uint256 i = 0; i < bonusInfo.length; i ++){
+                BonusInfo storage bonus = bonusInfo[i];
+                UserRewardInfo storage userReward = userRewardInfo[i][account];
+                uint256 pendingReward = user.quantity.mul(bonus.accRewardPerShare).div(1e12).sub(userReward.rewardDebt);
+                if (pendingReward > 0) {
+                    userReward.pendingReward = userReward.pendingReward.add(pendingReward);
+                    userReward.accRewardAmount = userReward.accRewardAmount.add(pendingReward);
+                }
+            }
         }
-        user.rewardDebt = user.quantity.mul(pool.accRewardPerShare).div(1e12);
-        emit Swap(account, tokenOfPid[token], quantity);
 
-        return true;
-    }
+        uint256 tmpQuantity = user.quantity;
+        user.quantity = 0;
+        if(address(masterChef) != address(0)){
+            (address[] memory tokens, uint256[] memory amounts, uint256 masterChefPower) = masterChef.getLuckyPower(account);
+        }else{
+            user.bankerQuantity = 0;
+            user.lpQuantity = 0;
+        }
 
-    function getPower(address account) public view returns (uint256) {
-        return userInfo[account].quantity;
+        if(address(betMining) != address(0)){
+            user.playerQuantity = betMining.getLuckyPower(account);
+            user.quantity = user.quantity.add(user.playerQuantity);
+        }else{
+            user.playerQuantity = 0;
+        }
+        
+        if(address(referral) != address(0)){
+            user.referrerQuantity = referral.getLuckyPower(account);
+            user.quantity = user.quantity.add(user.referrerQuantity);
+        }else{
+            user.referrerQuantity = 0;
+        }
+
+        if(address(lottery) != address(0)){
+            user.lotteryQuantity = lottery.getLuckyPower(account);
+            user.quantity = user.quantity.add(user.lotteryQuantity);
+        }else{
+            user.lotteryQuantity = 0;
+        }
+
+        quantity = quantity.sub(tmpQuantity).add(user.quantity);
+        for(uint256 i = 0; i < bonusInfo.length; i ++){
+            BonusInfo storage bonus = bonusInfo[i];
+            UserRewardInfo storage userReward = userRewardInfo[i][account];
+            userReward.rewardDebt = user.quantity.mul(bonus.accRewardPerShare).div(1e12);
+        }
+
+        emit UpdatePower(account, user.quantity);
+
     }
 
     /*
@@ -265,19 +278,33 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     }
     */
 
-    // Safe reward token transfer function, just in case if rounding error causes pool to not have enough reward tokens.
-    function safeRewardTokenTransfer(address _to, uint256 _amount) internal {
-        uint256 rewardTokenBalance = rewardToken.balanceOf(address(this));
-        if (_amount > rewardTokenBalance) {
-            IBEP20(rewardToken).safeTransfer(_to, rewardTokenBalance);
-        } else {
-            IBEP20(rewardToken).safeTransfer(_to, _amount);
-        }
-    }
-
     function setOracle(address _oracleAddr) public onlyOwner {
         require(_oracleAddr != address(0), "BetMining: new oracle is the zero address");
         oracle = IOracle(_oracleAddr);
+    }
+
+    function setMasterChef(address _masterChefAddr) public onlyOwner {
+        require(_masterChefAddr != address(0), "Zero");
+        masterChef = IMasterChef(_masterChefAddr);
+        emit SetMasterChef(_masterChefAddr);
+    }
+
+    function setBetMining(address _betMiningAddr) public onlyOwner {
+        require(_betMiningAddr != address(0), "Zero");
+        betMining = IBetMining(_betMiningAddr);
+        emit SetBetMining(_betMiningAddr);
+    }
+
+    function setReferral(address _referralAddr) public onlyOwner {
+        require(_referralAddr != address(0), "Zero");
+        referral = IReferral(_referralAddr);
+        emit SetReferral(_referralAddr);
+    }
+
+    function setLottery(address _lotteryAddr) public onlyOwner {
+        require(_lotteryAddr != address(0), "Zero");
+        lottery = ILottery(_lotteryAddr);
+        emit SetLottery(_lotteryAddr);
     }
 
     function getLpTokensLength() public view returns (uint256) {
