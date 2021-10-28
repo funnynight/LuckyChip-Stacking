@@ -25,6 +25,7 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     EnumerableSet.AddressSet private _updaters;
     EnumerableSet.AddressSet private _lpTokens;
     EnumerableSet.AddressSet private _diceTokens;
+    EnumerableSet.AddressSet private _teamAddrs;
 
     // Power quantity info of each user.
     struct UserInfo {
@@ -148,6 +149,12 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         }
 
         // TODO update dev quantity
+        uint256 length = EnumerableSet.length(_teamAddrs);
+        for(uint256 i = 0; i < length; i ++){
+            address teamAddr = EnumerableSet.at(_teamAddrs, i);
+            updatePower(teamAddr);
+        }
+
         bonus.accRewardPerShare = bonus.accRewardPerShare.add(amount.mul(1e12).div(quantity));
         bonus.allocRewardAmount = bonus.allocRewardAmount.add(amount);
         bonus.accRewardAmount = bonus.accRewardAmount.add(amount);
@@ -359,6 +366,16 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     function delDiceToken(address _delDiceToken) public onlyOwner returns (bool) {
         require(_delDiceToken != address(0), "Token: _delDiceToken is the zero address");
         return EnumerableSet.remove(_diceTokens, _delDiceToken);
+    }
+
+    function addTeamAddr(address _teamAddr) public onlyOwner returns (bool) {
+        require(_teamAddr != address(0), "Addr: _teamAddr is the zero address");
+        return EnumerableSet.add(_teamAddrs, _teamAddr);
+    }
+
+    function delTeamAddr(address _teamAddr) public onlyOwner returns (bool) {
+        require(_teamAddr != address(0), "Addr: _teamAddr is the zero address");
+        return EnumerableSet.remove(_teamAddrs, _teamAddr);
     } 
 
     function getUpdaterLength() public view returns (uint256) {
