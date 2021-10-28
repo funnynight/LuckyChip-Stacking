@@ -357,29 +357,31 @@ contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
         }
     }
 
-    function getLuckyPower(address user) public override view returns (address[] memory, uint256[] memory, uint256){
+    function getLuckyPower(address user) public override view returns (address[] memory, uint256[] memory, uint256[] memory, uint256, uint256){
         address[] memory tokens = new address[](poolInfo.length);
         uint256[] memory amounts = new uint256[](poolInfo.length);
-        uint256 allPending = 0;
+        uint256[] memory pendingLcAmounts = new uint256[](poolInfo.length);
+        
         for(uint256 i = 0; i < poolInfo.length; i ++){
             tokens[i] = address(poolInfo[i].lpToken);
             amounts[i] = userInfo[i][user].amount;
-            allPending = allPending.add(pendingLC(i, user));
+            pendingLcAmounts[i] = pendingLC(i, user);
         }
+        uint256 devPending = 0;
         if(EnumerableSet.contains(_tokenomicAddrs, user)){
             if(user == dev0Addr){
-                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev0Percent).div(percentDec));
+                devPending = getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev0Percent).div(percentDec);
             }else if(user == dev1Addr){
-                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev1Percent).div(percentDec));
+                devPending = getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev1Percent).div(percentDec);
             }else if(user == dev2Addr){
-                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev2Percent).div(percentDec));
+                devPending = getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(dev2Percent).div(percentDec);
             }else if(user == ecoAddr){
-                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(ecoPercent).div(percentDec));
+                devPending = getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(ecoPercent).div(percentDec);
             }else if(user == treasuryAddr){
-                allPending = allPending.add(getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(treasuryPercent).div(percentDec));
+                devPending = getMultiplier(lastBlockDevWithdraw, block.number).mul(LCPerBlock).mul(treasuryPercent).div(percentDec);
             }
         }
-        return (tokens, amounts, allPending);
+        return (tokens, amounts, pendingLcAmounts, devPending, poolInfo.length);
     }
 
     // get stack amount

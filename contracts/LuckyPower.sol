@@ -23,6 +23,8 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
     EnumerableSet.AddressSet private _tokens;
     EnumerableSet.AddressSet private _updaters;
+    EnumerableSet.AddressSet private _lpTokens;
+    EnumerableSet.AddressSet private _diceTokens;
 
     // Power quantity info of each user.
     struct UserInfo {
@@ -51,6 +53,8 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     }
 
     uint256 public quantity;
+    uint256 public constant PERCENT_DEC = 10000;
+    uint256 public lpPercent = 5000;
 
     // Lc token
     IBEP20 public lcToken;
@@ -90,8 +94,8 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     } 
 
     event UpdatePower(address indexed user, uint256 quantity);
-    event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
-    event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event Withdraw(address indexed user);
+    event EmergencyWithdraw(address indexed user);
     event SetMasterChef(address indexed _masterChefAddr);
     event SetBetMining(address indexed _betMiningAddr);
     event SetReferral(address indexed _referralAddr);
@@ -154,17 +158,8 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         return userInfo[account].quantity;
     }
 
-    function updatePower(address account) public override{
-        require(account != address(0), "BetMining: bet account is zero address");
-
-        for(uint256 i = 0; i < bonusInfo.length; i ++){
-            BonusInfo storage bonus = bonusInfo[i];
-            if(bonus.token != address(lcToken)){
-                oracle.update(bonus.token, address(lcToken));
-                oracle.updateBlockInfo();
-            }
-        }
-
+        // add pending rewardss.
+    function addPendingRewards(address account) internal{
         UserInfo storage user = userInfo[account];
         if (user.quantity > 0) {
             for(uint256 i = 0; i < bonusInfo.length; i ++){
@@ -177,11 +172,45 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
                 }
             }
         }
+    }
+
+    function updatePower(address account) public override{
+        require(account != address(0), "BetMining: bet account is zero address");
+
+        for(uint256 i = 0; i < bonusInfo.length; i ++){
+            BonusInfo storage bonus = bonusInfo[i];
+            if(bonus.token != address(lcToken)){
+                oracle.update(bonus.token, address(lcToken));
+                oracle.updateBlockInfo();
+            }
+        }
+
+        UserInfo storage user = userInfo[account];
+        addPendingRewards(account);
 
         uint256 tmpQuantity = user.quantity;
-        user.quantity = 0;
-        if(address(masterChef) != address(0)){
-            (address[] memory tokens, uint256[] memory amounts, uint256 masterChefPower) = masterChef.getLuckyPower(account);
+        uint256 newQuantity = 0;
+        if(address(masterChef) != address(0) && address(oracle) != address(0)){
+            (address[] memory tokens, uint256[] memory amounts, uint256[] memory pendingLcAmounts, uint256 devPending, uint256 poolLength) = masterChef.getLuckyPower(account);
+            uint256 tmpLpQuantity = 0;
+            uint256 tmpBankerQuantity = 0;
+            uint256 tmpValue = 0;
+            for(uint256 i = 0; i < poolLength; i ++){
+                if(EnumerableSet.contains(_lpTokens, tokens[i])){
+                    tmpValue = oracle.getLpTokenValue(tokens[i], amounts[i]);
+                    tmpLpQuantity = tmpLpQuantity.add(tmpValue.mul(lpPercent).div(PERCENT_DEC)).add(pendingLcAmounts[i]);
+                    newQuantity = newQuantity.add(tmpValue.mul(lpPercent).div(PERCENT_DEC)).add(pendingLcAmounts[i]);
+                }else if(EnumerableSet.contains(_diceTokens, tokens[i])){
+                    tmpValue = oracle.getDiceTokenValue(tokens[i], amounts[i]);
+                    tmpBankerQuantity = tmpLpQuantity.add(tmpValue).add(pendingLcAmounts[i]);
+                    newQuantity = newQuantity.add(tmpValue).add(pendingLcAmounts[i]);
+                }
+            }
+            user.lpQuantity = tmpLpQuantity;
+            user.bankerQuantity = tmpBankerQuantity;
+            if(devPending > 0){
+                newQuantity = newQuantity.add(devPending);
+            }
         }else{
             user.bankerQuantity = 0;
             user.lpQuantity = 0;
@@ -189,24 +218,25 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
 
         if(address(betMining) != address(0)){
             user.playerQuantity = betMining.getLuckyPower(account);
-            user.quantity = user.quantity.add(user.playerQuantity);
+            newQuantity = newQuantity.add(user.playerQuantity);
         }else{
             user.playerQuantity = 0;
         }
         
         if(address(referral) != address(0)){
             user.referrerQuantity = referral.getLuckyPower(account);
-            user.quantity = user.quantity.add(user.referrerQuantity);
+            newQuantity = newQuantity.add(user.referrerQuantity);
         }else{
             user.referrerQuantity = 0;
         }
 
         if(address(lottery) != address(0)){
             user.lotteryQuantity = lottery.getLuckyPower(account);
-            user.quantity = user.quantity.add(user.lotteryQuantity);
+            newQuantity = newQuantity.add(user.lotteryQuantity);
         }else{
             user.lotteryQuantity = 0;
         }
+        user.quantity = newQuantity;
 
         quantity = quantity.sub(tmpQuantity).add(user.quantity);
         for(uint256 i = 0; i < bonusInfo.length; i ++){
@@ -216,67 +246,58 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         }
 
         emit UpdatePower(account, user.quantity);
-
     }
 
-    /*
-    function pendingRewards(uint256 _pid, address _user) public view validPool(_pid) returns (uint256) {
-
-        PoolInfo storage pool = poolInfo[_pid];
-        UserInfo storage user = userInfo[_pid][_user];
-        uint256 accRewardPerShare = pool.accRewardPerShare;
-
+    function pendingRewards(address account) public view returns (address[] memory, uint256[] memory) {
+        uint256 length = bonusInfo.length;
+        address[] memory tokens = new address[](length);
+        uint256[] memory amounts = new uint256[](length);
+        UserInfo storage user = userInfo[account];
         if (user.quantity > 0) {
-            if (block.number > pool.lastRewardBlock) {
-                uint256 blockReward = getRewardTokenBlockReward(pool.lastRewardBlock);
-                uint256 tokenReward = blockReward.mul(pool.allocPoint).div(totalAllocPoint);
-                accRewardPerShare = accRewardPerShare.add(tokenReward.mul(1e12).div(pool.quantity));
-                return user.pendingReward.add(user.quantity.mul(accRewardPerShare).div(1e12).sub(user.rewardDebt));
-            }
-            if (block.number == pool.lastRewardBlock) {
-                return user.pendingReward.add(user.quantity.mul(accRewardPerShare).div(1e12).sub(user.rewardDebt));
+            for(uint256 i = 0; i < length; i ++){
+                BonusInfo storage bonus = bonusInfo[i];
+                UserRewardInfo storage userReward = userRewardInfo[i][account];
+                uint256 pendingReward = user.quantity.mul(bonus.accRewardPerShare).div(1e12).sub(userReward.rewardDebt);
+                tokens[i] = bonus.token;
+                amounts[i] = userReward.pendingReward.add(pendingReward);
             }
         }
-        return 0;
+        return (tokens, amounts);
     }
 
-    function withdraw() public{
-        PoolInfo storage pool = poolInfo[_pid];
-        UserInfo storage user = userInfo[_pid][tx.origin];
+    function withdraw() public nonReentrant {
+        address account = msg.sender;
+        addPendingRewards(account);
 
-        updatePool(_pid);
-        uint256 pendingAmount = pendingRewards(_pid, tx.origin);
-
-        if (pendingAmount > 0) {
-            safeRewardTokenTransfer(tx.origin, pendingAmount);
-            pool.quantity = pool.quantity.sub(user.quantity);
-            pool.allocRewardAmount = pool.allocRewardAmount.sub(pendingAmount);
-            user.accRewardAmount = user.accRewardAmount.add(pendingAmount);
-            user.quantity = 0;
-            user.rewardDebt = 0;
-            user.pendingReward = 0;
+        uint256 tmpReward = 0;
+        for(uint256 i = 0; i < bonusInfo.length; i ++){
+            BonusInfo storage bonus = bonusInfo[i];
+            UserRewardInfo storage userReward = userRewardInfo[i][account];
+            tmpReward = userReward.pendingReward;
+            userReward.pendingReward = 0;
+            IBEP20(bonus.token).safeTransfer(account, tmpReward);
         }
-        emit Withdraw(tx.origin, _pid, pendingAmount);
+
+        updatePower(account);
+        emit Withdraw(msg.sender);
     }
 
     
-    function emergencyWithdraw() public {
-        PoolInfo storage pool = poolInfo[_pid];
-        UserInfo storage user = userInfo[_pid][msg.sender];
+    function emergencyWithdraw() public nonReentrant {
+        address account = msg.sender;
 
-        uint256 pendingReward = user.pendingReward;
-        pool.quantity = pool.quantity.sub(user.quantity);
-        pool.allocRewardAmount = pool.allocRewardAmount.sub(user.pendingReward);
-        user.accRewardAmount = user.accRewardAmount.add(user.pendingReward);
-        user.quantity = 0;
-        user.rewardDebt = 0;
-        user.pendingReward = 0;
+        uint256 tmpReward = 0;
+        for(uint256 i = 0; i < bonusInfo.length; i ++){
+            BonusInfo storage bonus = bonusInfo[i];
+            UserRewardInfo storage userReward = userRewardInfo[i][account];
+            tmpReward = userReward.pendingReward;
+            userReward.pendingReward = 0;
+            IBEP20(bonus.token).safeTransfer(account, tmpReward);
+        }
 
-        safeRewardTokenTransfer(msg.sender, pendingReward);
-
-        emit EmergencyWithdraw(msg.sender, _pid, user.quantity);
+        updatePower(account);
+        emit EmergencyWithdraw(msg.sender);
     }
-    */
 
     function setOracle(address _oracleAddr) public onlyOwner {
         require(_oracleAddr != address(0), "BetMining: new oracle is the zero address");
@@ -307,6 +328,11 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
         emit SetLottery(_lotteryAddr);
     }
 
+    function setLpPercent(uint256 _percent) public onlyOwner {
+        require(_percent <= PERCENT_DEC, "range");
+        lpPercent = _percent;
+    }
+
     function getLpTokensLength() public view returns (uint256) {
         return EnumerableSet.length(_tokens);
     }
@@ -314,6 +340,26 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
     function getLpToken(uint256 _index) public view returns (address) {
         return EnumerableSet.at(_tokens, _index);
     }
+
+    function addLpToken(address _addLpToken) public onlyOwner returns (bool) {
+        require(_addLpToken != address(0), "Token: _addLpToken is the zero address");
+        return EnumerableSet.add(_lpTokens, _addLpToken);
+    }
+
+    function delLpToken(address _delLpToken) public onlyOwner returns (bool) {
+        require(_delLpToken != address(0), "Token: _delLpToken is the zero address");
+        return EnumerableSet.remove(_lpTokens, _delLpToken);
+    } 
+
+    function addDiceToken(address _addDiceToken) public onlyOwner returns (bool) {
+        require(_addDiceToken != address(0), "Token: _addDiceToken is the zero address");
+        return EnumerableSet.add(_diceTokens, _addDiceToken);
+    }
+
+    function delDiceToken(address _delDiceToken) public onlyOwner returns (bool) {
+        require(_delDiceToken != address(0), "Token: _delDiceToken is the zero address");
+        return EnumerableSet.remove(_diceTokens, _delDiceToken);
+    } 
 
     function getUpdaterLength() public view returns (uint256) {
         return EnumerableSet.length(_updaters);

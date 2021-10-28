@@ -163,7 +163,7 @@ contract Oracle is Ownable, IOracle {
         }
     }
 
-    function getLpTokenValue(address _lpToken, uint256 _amount) public view returns (uint256 value) {
+    function getLpTokenValue(address _lpToken, uint256 _amount) public override view returns (uint256 value) {
         uint256 totalSupply = IBEP20(_lpToken).totalSupply();
         address token0 = ILuckyChipPair(_lpToken).token0();
         address token1 = ILuckyChipPair(_lpToken).token1();
@@ -176,37 +176,16 @@ contract Oracle is Ownable, IOracle {
         value = (token0Value.add(token1Value)).mul(_amount).div(totalSupply);
     }
 
-    function getLpTokenPower(address _lpToken, uint256 _amount, uint256 _poolType) public override view returns (uint256 value) {
-        if(_poolType != 0){
-            value = 0;    
+    function getDiceTokenValue(address _diceToken, uint256 _amount) public override view returns (uint256 value) {
+        if(isDiceToken(_diceToken)){
+            address _dice = diceToken2Dice[_diceToken];
+            IDice dice = IDice(_dice);
+            uint256 diceTokenAmount = dice.canWithdrawAmount(_amount);
+            value = getQuantity(dice.tokenAddr(), diceTokenAmount);
         }else{
-            uint256 totalSupply = IBEP20(_lpToken).totalSupply();
-            address token0 = ILuckyChipPair(_lpToken).token0();
-            address token1 = ILuckyChipPair(_lpToken).token1();
-            uint256 token0Decimal = IBEP20(token0).decimals();
-            uint256 token1Decimal = IBEP20(token1).decimals();
-            (uint256 reserve0, uint256 reserve1) = LuckyChipLibrary.getReserves(factory, token0, token1);
-    
-            uint256 token0Value = (getAveragePrice(token0)).mul(reserve0).div(10**token0Decimal);
-            uint256 token1Value = (getAveragePrice(token1)).mul(reserve1).div(10**token1Decimal);
-            value = (token0Value.add(token1Value)).mul(_amount).div(totalSupply);
-        }
-    }
-
-    function getDiceTokenPower(address _diceToken, uint256 _amount, uint256 _poolType) public override view returns (uint256 value) {
-        if(_poolType != 2){
             value = 0;
-        }else{
-            if(isDiceToken(_diceToken)){
-                address _dice = diceToken2Dice[_diceToken];
-                IDice dice = IDice(_dice);
-                value = dice.canWithdrawAmount(_amount);
-            }else{
-                value = 0;
-            }
         }
     }
-    
 
     function getAverageBlockTime() public view returns (uint256) {
         return (1000 * block.timestamp - blockInfo.timestamp).div(block.number - blockInfo.height);
@@ -250,5 +229,4 @@ contract Oracle is Ownable, IOracle {
     function isDiceToken(address _token) public view returns (bool) {
         return EnumerableSet.contains(_diceTokens, _token);
     }
-
 }

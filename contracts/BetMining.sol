@@ -263,7 +263,7 @@ contract BetMining is IBetMining, Ownable, ReentrancyGuard {
         return true;
     }
 
-        // add pending rewardss.
+    // add pending rewardss.
     function addPendingRewards(uint256 _pid, address _user) internal validPool(_pid) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
