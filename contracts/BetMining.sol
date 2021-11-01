@@ -217,11 +217,16 @@ contract BetMining is IBetMining, Ownable, ReentrancyGuard {
 
     function bet(
         address account,
+        address referrer,
         address token,
         uint256 amount
     ) public override onlyBetTable nonReentrant returns (bool) {
         require(account != address(0), "BetMining: bet account is zero address");
         require(token != address(0), "BetMining: token is zero address");
+
+        if(amount > 0 && address(referral) != address(0) && referrer != address(0) && referrer != account){
+            referral.recordReferrer(account, referrer);
+        }
 
         if (getPoolLength() <= 0) {
             return false;
