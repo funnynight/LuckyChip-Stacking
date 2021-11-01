@@ -101,8 +101,6 @@ contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
     ILuckyPower public luckyPower;
     // Referral commission rate in basis points.
     uint16 public referralCommissionRate = 500;
-    // Max referral commission rate: 10%.
-    uint16 public constant MAXIMUM_REFERRAL_COMMISSION_RATE = 1000;
 
     event SetDevAddress(address indexed dev0Addr, address indexed dev1Addr, address indexed dev2Addr);
     event SetEcoAddress(address indexed ecoAddr);
@@ -117,6 +115,7 @@ contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event ClaimLC(address indexed user, uint256 indexed pid, uint256 amount);
     event ReferralCommissionPaid(address indexed user, address indexed referrer, uint256 commissionAmount);
 
     modifier validPool(uint256 _pid){
@@ -340,20 +339,18 @@ contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
         }
     }
 
-    function claim() public nonReentrant {
-        uint256 allPending = 0;
-        for(uint256 i = 0; i < poolInfo.length; i ++){
-            updatePool(i);
-            addPendingLC(i, msg.sender);
-            UserInfo storage user = userInfo[i][msg.sender];
-            allPending = allPending.add(user.pendingReward);
+    function claimLC(uint256 _pid) public nonReentrant validPool(_pid) {
+        updatePool(_pid);
+        addPendingLC(_pid, msg.sender);
+        UserInfo storage user = userInfo[_pid][msg.sender];
+        if(user.pendingReward > 0){
+            uint256 amount = user.pendingReward;
             user.pendingReward = 0;
-        }
-        if(allPending > 0){
-            safeLCTransfer(msg.sender, allPending);
+            safeLCTransfer(msg.sender, amount);
             if(address(luckyPower) != address(0)){
                 luckyPower.updatePower(msg.sender);
             }
+            ClaimLC(msg.sender, _pid, amount);
         }
     }
 
@@ -414,7 +411,7 @@ contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
     }
     // Update referral commission rate by the owner
     function setReferralCommissionRate(uint16 _referralCommissionRate) public onlyOwner {
-        require(_referralCommissionRate <= MAXIMUM_REFERRAL_COMMISSION_RATE, "setReferralCommissionRate: invalid referral commission rate basis points");
+        require(_referralCommissionRate <= 1000, "setReferralCommissionRate: invalid referral commission rate basis points");
         referralCommissionRate = _referralCommissionRate;
         emit SetReferralCommissionRate(referralCommissionRate);
     }
