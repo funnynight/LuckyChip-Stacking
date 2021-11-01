@@ -388,19 +388,29 @@ contract MasterChef is IMasterChef, Ownable, ReentrancyGuard{
 
     function setDevAddress(address _dev0Addr,address _dev1Addr,address _dev2Addr) public onlyOwner {
         require(_dev0Addr != address(0) && _dev1Addr != address(0) && _dev2Addr != address(0), "Zero");
+        EnumerableSet.remove(_tokenomicAddrs, dev0Addr);
+        EnumerableSet.remove(_tokenomicAddrs, dev1Addr);
+        EnumerableSet.remove(_tokenomicAddrs, dev2Addr);
         dev0Addr = _dev0Addr;
         dev1Addr = _dev1Addr;
         dev2Addr = _dev2Addr;
+        EnumerableSet.add(_tokenomicAddrs, dev0Addr);
+        EnumerableSet.add(_tokenomicAddrs, dev1Addr);
+        EnumerableSet.add(_tokenomicAddrs, dev2Addr);
         emit SetDevAddress(dev0Addr, dev1Addr, dev2Addr);
     }
     function setEcoAddress(address _ecoAddr) public onlyOwner{
         require(_ecoAddr != address(0), "Zero");
+        EnumerableSet.remove(_tokenomicAddrs, ecoAddr);
         ecoAddr = _ecoAddr;
+        EnumerableSet.add(_tokenomicAddrs, ecoAddr);
         emit SetEcoAddress(ecoAddr);
     }
     function setTreasuryAddress(address _treasuryAddr) public onlyOwner{
         require(_treasuryAddr != address(0), "Zero");
+        EnumerableSet.remove(_tokenomicAddrs, treasuryAddr);
         treasuryAddr = _treasuryAddr;
+        EnumerableSet.add(_tokenomicAddrs, treasuryAddr);
         emit SetTreasuryAddress(treasuryAddr);
     }
     function updateLcPerBlock(uint256 newAmount) public onlyOwner {
