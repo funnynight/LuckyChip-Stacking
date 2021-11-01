@@ -394,10 +394,10 @@ contract BetMining is IBetMining, Ownable, ReentrancyGuard {
                 if (commissionAmount > 0) {
                     if (referrer != address(0)){
                         rewardToken.mint(address(referral), commissionAmount);
-                        referral.recordPlayerCommission(referrer, commissionAmount);
+                        referral.recordBetCommission(referrer, commissionAmount);
                     }else{
                         rewardToken.mint(address(referral), commissionAmount);
-                        referral.recordPlayerCommission(defaultReferrer, commissionAmount);
+                        referral.recordBetCommission(defaultReferrer, commissionAmount);
                     }
                 }
             }else{

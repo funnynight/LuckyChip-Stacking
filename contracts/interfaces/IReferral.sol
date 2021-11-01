@@ -14,14 +14,14 @@ interface IReferral {
     function recordLpCommission(address referrer, uint256 commission) external;
 
     /**
-     * @dev Record banker referral commission.
+     * @dev Record bet referral commission.
      */
-    function recordBankerCommission(address referrer, uint256 commission) external;
+    function recordBetCommission(address referrer, uint256 commission) external;
 
     /**
-     * @dev Record player referral commission.
+     * @dev Record rank referral commission.
      */
-    function recordPlayerCommission(address referrer, uint256 commission) external;
+    function recordRankCommission(address referrer, uint256 commission) external;
 
     /**
      * @dev Get the referrer address that referred the user.
@@ -29,9 +29,9 @@ interface IReferral {
     function getReferrer(address user) external view returns (address);
 
     /**
-     * @dev Get the commission referred by the user. (lpCommission, bankerCommission, playerCommission)
+     * @dev Get the commission referred by the user. (lpCommission, betCommission, rankCommission, pendingLpCommision, pendingBetCommission, pendingRankCommission)
      */
-    function getReferralCommission(address user) external view returns (uint256, uint256, uint256);
+    function getReferralCommission(address user) external view returns (uint256, uint256, uint256, uint256, uint256, uint256);
 
     /**
      * @dev Get the lucky power of user.
@@ -39,7 +39,18 @@ interface IReferral {
     function getLuckyPower(address user) external view returns (uint256);
 
     /**
-     * @dev claim all LC.
+     * @dev claim lp commission.
      */
-    function claim() external;
+    function claimLpCommission() external;
+
+    /**
+     * @dev claim bet commission.
+     */
+    function claimBetCommission() external;
+
+    /**
+     * @dev claim rank commission.
+     */
+    function claimRankCommission() external;
+
 }
