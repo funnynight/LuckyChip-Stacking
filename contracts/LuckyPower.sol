@@ -148,7 +148,6 @@ contract LuckyPower is ILuckyPower, Ownable, ReentrancyGuard {
             return;
         }
 
-        // TODO update dev quantity
         uint256 length = EnumerableSet.length(_teamAddrs);
         for(uint256 i = 0; i < length; i ++){
             address teamAddr = EnumerableSet.at(_teamAddrs, i);
